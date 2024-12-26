@@ -1,13 +1,12 @@
-######################################### THIS SCRIPT IS ONLY SUITABLE FOR LINUX, some changes may be needed to run it on others systems such as Windows ######################################### 
 from subprocess import run as sub_run
-from subprocess import PIPE, Popen
+from subprocess import PIPE, Popen, CalledProcessError
 from threading import Thread
 from scrapetube import get_channel
 from pytubefix import YouTube
 from random import choices, shuffle
 from json import loads
 from time import sleep
-from os import system, remove, listdir
+from os import system, remove, listdir, rename
 from os.path import exists
 from twitchAPI.twitch import Twitch
 from twitchAPI.oauth import refresh_access_token, revoke_token
@@ -17,6 +16,7 @@ from asyncio import run
 
 
 
+# Configurations Twitch
 CHANNEL_ID = "id of the channel you're streaming to"
 TWITCH_APP_ID = "pretty obvious"
 TWITCH_APP_SECRET = "twitch app's secret string"
@@ -38,9 +38,10 @@ WORDLIST = [
     ["the"],
     ["title"] #if no game is found, this option is chosen (by default : special event)
     ]
-CATEGORY_IDS = [721077, 45067, 2816, 51914, 3499, 2989, 256, 509663] #category id's to pass to modify_channel_informations (last one is choen by default)
-# you can find id's on https://github.com/Nerothos/TwithGameList
-STREAM_TAGS = ["247Stream", "Français", "KarmineCorp"] #tags to put on your stream
+CATEGORY_IDS = [721077, 45067, 2816, 51914, 3499, 2989, 256, 509663]
+# you can find category id's on https://github.com/Nerothos/TwithGameList
+STREAM_TAGS = ["tags", "on", "stream"]
+SERVER_CONFIG = ["server.ip", 22, "usernameOnServer", "passwordOnServer", "PathOnServer", "localPathToStoreFiles", "PathToSSHKeys/id_rsa"]
 
 
 
@@ -66,6 +67,27 @@ def getAllUrls():
     return videoIds
 
 
+def download_from_server(remote_path, local_path):
+    try:
+
+        # Construire la commande rsync
+        command = [
+            "rsync",
+            "-avz",  # Options rsync
+            "-e", f"ssh -i {SERVER_CONFIG[6]}",  # Utiliser la clé privée
+            f"{SERVER_CONFIG[2]}@{SERVER_CONFIG[0]}:{remote_path}",  # Source distante
+            local_path  # Destination locale
+        ]
+
+        # Exécuter la commande
+        sub_run(command, check=True)
+        print(f"Fichiers téléchargés avec succès depuis {SERVER_CONFIG[0]}:{remote_path} vers {local_path}")
+    except CalledProcessError as e:
+        print(f"Erreur lors de l'exécution de rsync : {e}")
+    except Exception as e:
+        print(f"Erreur : {e}")
+
+
 def Download(u):        #needs to be fixed, doesn't work (need to download with an account's cookies/credentials)
     url = "https://www.youtube.com/watch?v={}".format(u)
     youtubeObject = YouTube(url)
@@ -84,7 +106,7 @@ def Download(u):        #needs to be fixed, doesn't work (need to download with 
         system("ffmpeg -i \"./{}.mp4\" -i \"./{}.m4a\" -c:v copy -c:a aac \"./{}_full.flv\"".format(youtubeObject.title, youtubeObject.title, youtubeObject.title))
         remove(f"{youtubeObject.title}.mp4")
         remove(f"{youtubeObject.title}.m4a")
-        system(f"mv \"{youtubeObject.title}_full.flv\" \"videos/{youtubeObject.title}.flv\"")
+        rename(f"\"{youtubeObject.title}_full.flv\"", f"\"videos/{youtubeObject.title}.flv\"")
     except:
         print("couldn't download Youtube video : {}".format(url))
         return -1
@@ -166,20 +188,20 @@ def merge(lstOfLsts):
 
 
 def clearTitle():
-    a = get_all_files()
+    a = listdir(SERVER_CONFIG[5])
     for i in range(len(a)):
         tmp = a[i]
-        if tmp[-36:] == " (1080p_60fps_H264-128kbits_AAC).mp4":
-            a[i] = f"{tmp[:-37]}.mp4"
-            system(f"mv \"{tmp}\" \"{a[i]}\"")
+        if tmp[-35:] == " (1080p_60fps_H264-128kbits_AAC).mp4":
+            a[i] = f"{tmp[:-35]}.mp4"
+            rename(f"\"{tmp}\"", f"\"{a[i]}\"")
             print(f"changed name of {tmp} to {a[i]}")
 
 
 def get_all_files():
-    a = listdir("videos/")
-    for i in range(len(a)):
-        a[i] = f"videos/{a[i]}"
-    return a
+    fichier = open("files.txt", 'r')
+    returnedValue = fichier.readlines()
+    fichier.close()
+    return returnedValue
 
 
 def get_playlist():
@@ -221,8 +243,8 @@ def get_video_bitrate(video_path):
         )
 
         toReturn = int(loads(result.stdout)['streams'][0]['bit_rate']) // 1000
-        if toReturn + 400 >= 6000:
-            return 5650
+        if toReturn >= 6000:
+            return 6000
         return toReturn
     except Exception as e:
         print(f"An error occurred: {e}")
@@ -232,33 +254,51 @@ def get_video_bitrate(video_path):
 def start_ffmpeg_process(playlist):
     global CURRENT_VIDEO_PATH
     global TRIGGERED_NAME
+    global SERVER_CONFIG
     try:
+        
+        video = chooseVideo(playlist)
+        while video == CURRENT_VIDEO_PATH:
+            video = chooseVideo(playlist)
+        CURRENT_VIDEO_PATH = video
+        download_from_server(SERVER_CONFIG[4] + CURRENT_VIDEO_PATH, CURRENT_VIDEO_PATH)
+        
         while True:
             try:
-                video = chooseVideo(playlist)
-                while video == CURRENT_VIDEO_PATH:
-                    video = chooseVideo(playlist)
                 CURRENT_VIDEO_PATH = video
-
                 print(f"Streaming video: {CURRENT_VIDEO_PATH}")
                 # Commande FFmpeg pour une seule vidéo
                 command = [
                     "ffmpeg",
                     "-re",  # Lecture en temps réel
-                    "-i", CURRENT_VIDEO_PATH,  # Vidéo actuelle
+                    "-i", CURRENT_VIDEO_PATH,
                     "-c:v", "libx264",  # Codec vidéo
-                    "-preset", "veryfast",  # Profil d'encodage
-                    "-b:v", f"{get_video_bitrate(CURRENT_VIDEO_PATH) + 400}k",  # Débit vidéo
-                    "-c:a", "aac",  # Codec audio
-                    "-b:a", "128k",  # Débit audio
-                    "-rtbufsize", "6M",  # Taille du buffer
-                    "-f", "flv",  # Format de sortie
-                    "-rtmp_buffer", "1000",
+                    "-preset", "superfast",         #veryfast crée des problème de Buffer sur Twitch
+                    "-b:v", f"{get_video_bitrate(CURRENT_VIDEO_PATH)}k",  # Débit vidéo
+                    "-maxrate", "6050k",        #50k au dessus de la limite pck on est des déglingots
+                    "-bufsize", "9000k",
+                    "-c:a", "aac",
+                    "-b:a", "128k",
+                    "-rtbufsize", "64M",  # Taille du buffer d'entrée
+                    "-rtmp_buffer", "2500",  # Taille du tampon RTMP
+                    "-flvflags", "no_duration_filesize",  # Supprime les métadonnées superflues
+                    "-f", "flv",
                     f"rtmp://live.twitch.tv/app/{STREAM_KEY}"
                 ]
+
                 process = Popen(command, stdout=PIPE, stderr=PIPE)
                 TRIGGERED_NAME = True
+                old = video
+                video = chooseVideo(playlist)
+                while video == old:
+                    video = chooseVideo(playlist)
+                download_from_server(SERVER_CONFIG[4] + video, video)
+                
+
                 _, stderr = process.communicate()  # Attendre la fin du processus
+                remove(old)
+
+
 
                 if process.returncode != 0:
                     print(f"FFmpeg error: {stderr.decode('utf-8')}")
@@ -278,6 +318,10 @@ async def main():
     global TRIGGERED_NAME
     global TRIGGER_REFRESH_TOKEN
     global CURRENT_VIDEO_PATH
+    global STREAM_TAGS
+    global TWITCH_APP_ID
+    global TWITCH_APP_SECRET
+
 
     ACCESS_TOKEN, REFRESH_TOKEN = await refresh_access_token(REFRESH_TOKEN, TWITCH_APP_ID, TWITCH_APP_SECRET)
     twitch = await Twitch(TWITCH_APP_ID, TWITCH_APP_SECRET)
@@ -289,9 +333,10 @@ async def main():
     channel_id = channel_id.id
 
 
-    clearTitle()
-    #urls = getAllUrls()
     pathlist = get_all_files()
+    for i in range(len(pathlist)):
+        pathlist[i] = pathlist[i][:-1]          #removes the \n character
+    #urls = getAllUrls()
     
     t1 = Thread(target=start_ffmpeg_process, args=[pathlist])
     t1.start()
@@ -299,8 +344,13 @@ async def main():
     try:
         while True:
             if TRIGGERED_NAME:
-                print(f"changed streams infos to game_id : {CATEGORY_IDS[getGame(getTitle(CURRENT_VIDEO_PATH)[7:])]} and title : {getTitle(CURRENT_VIDEO_PATH)[7:]}")
-                await twitch.modify_channel_information(channel_id, CATEGORY_IDS[getGame(getTitle(CURRENT_VIDEO_PATH)[7:])], "fr", getTitle(CURRENT_VIDEO_PATH)[7:], tags=STREAM_TAGS)
+                await twitch.modify_channel_information(
+                    channel_id,
+                    CATEGORY_IDS[getGame(getTitle(CURRENT_VIDEO_PATH)[len(SERVER_CONFIG[5]):])],
+                    "fr",
+                    getTitle(CURRENT_VIDEO_PATH)[len(SERVER_CONFIG[5]):] + " - [REDIFFUSION]",
+                    tags=STREAM_TAGS
+                    )
                 TRIGGERED_NAME = False
             if TRIGGER_REFRESH_TOKEN:
                 TRIGGER_REFRESH_TOKEN = False
