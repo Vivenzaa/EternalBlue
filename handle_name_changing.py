@@ -1,4 +1,3 @@
-from os import listdir, rename
 from os.path import exists
 from twitchAPI.twitch import Twitch
 from twitchAPI.oauth import refresh_access_token, revoke_token
@@ -58,7 +57,7 @@ async def update(path):
     global ACCESS_TOKEN
     global REFRESH_TOKEN
 
-    print(f"changing stream title to {path[len(LOCAL_PATH):-4]} - [REDIFFUSION]")
+    print(f"changing stream title to {path[:-4]} - [REDIFFUSION]")
 
     twitch = await Twitch(TWITCH_APP_ID, TWITCH_APP_SECRET)
     target_scope = [AuthScope.CHANNEL_MANAGE_BROADCAST, AuthScope.USER_EDIT_BROADCAST]
@@ -70,9 +69,9 @@ async def update(path):
 
     await twitch.modify_channel_information(
         channel_id.id,
-        CATEGORY_IDS[getGame(path[len(LOCAL_PATH):-4])],
+        CATEGORY_IDS[getGame(path[:-4])],
         "fr",
-        path[len(LOCAL_PATH):-4] + " - [REDIFFUSION]",
+        path[:-4] + " - [REDIFFUSION]",
         tags=STREAM_TAGS
         )
     
