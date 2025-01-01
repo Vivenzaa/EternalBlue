@@ -11,15 +11,19 @@
 #include <fcntl.h>
 #include <cjson/cJSON.h>
 
-
 #define STREAM_KEY "your twitch channel stream key"
 #define REMOTE_IP "127.0.0.1"
 #define REMOTE_NAME "your remote server username"
-#define REMOTE_PATH_START "im gonna change that, that sucks to port my code"
+#define REMOTE_PATH_START "where are your videos stored"
 #define SSH_PATH "/home/local_username/.ssh/id_rsa"
 #define LOCAL_PATH "videos/"
-#define SEED 721077     // funny magic
+#define SEED 721077     // what could that number be
 
+/*
+        - Add filler video in case of unfinished download / unknown error 
+TODO :  - optimize
+        - add security
+*/
 
 
 void* downloadFromServer(void *arg)
@@ -167,32 +171,48 @@ void put_spaces(char *str) {
 }
 
 
-void *writeToFifo(void *arg) {
+void *writeToFifo(void *arg) 
+{
     int fifo_fd = open("video_fifo", O_WRONLY);
     if (fifo_fd == -1) {
         perror("Erreur lors de l'ouverture du FIFO");
         exit(1);
     }
 
-    char cmd[1024];
-    snprintf(cmd, sizeof(cmd),
-        "ffmpeg -re -i \"%s%s\" -c copy -f mpegts -", LOCAL_PATH, (char *)arg);
-    FILE *ffmpeg = popen(cmd, "r");
-    if (!ffmpeg) {
-        perror("Erreur lors de l'exécution de ffmpeg");
-        exit(1);
+    char *video = (char *)arg;
+    while (1) {
+        char cmd[1024];
+        if (video != NULL) {
+            snprintf(cmd, sizeof(cmd), "ffmpeg -re -i \"%s%s\" -c copy -f mpegts -", LOCAL_PATH, video);
+        } else {
+            snprintf(cmd, sizeof(cmd), "ffmpeg -re -loop 1 -i placeholder.jpg -c:v libx264 -f mpegts -");
+        }
+
+        FILE *ffmpeg = popen(cmd, "r");
+        if (!ffmpeg) {
+            perror("Erreur lors de l'exécution de ffmpeg");
+            exit(1);
+        }
+
+        char buffer[4096];
+        size_t bytesRead;
+        while ((bytesRead = fread(buffer, 1, sizeof(buffer), ffmpeg)) > 0) {
+            write(fifo_fd, buffer, bytesRead);
+        }
+
+        pclose(ffmpeg);
+
+        if (video != NULL) {
+            break;  // Quitter après avoir joué une vidéo complète.
+        }
+
+        // Si la vidéo est NULL, on boucle sur l'image placeholder.
     }
 
-    char buffer[4096];
-    size_t bytesRead;
-    while ((bytesRead = fread(buffer, 1, sizeof(buffer), ffmpeg)) > 0) {
-        write(fifo_fd, buffer, bytesRead);
-    }
-
-    pclose(ffmpeg);
     close(fifo_fd);
     return NULL;
 }
+
 
 
 void *cmdRunInThread(void *str)
@@ -234,7 +254,7 @@ void* ffmpegTimer(void *)
         seconds =   (tmpstmp - (long)time(NULL)) % 60;
         
         fichier = fopen("tmp.time.tmp", "w");
-        fprintf(fichier, "on va éclater %s sur %s dans \n%02ld:%02ld:%02ld", opponent, game, hours, minutes, seconds);
+        fprintf(fichier, "Prochaine victoire contre %s sur %s dans \n%02ld:%02ld:%02ld", opponent, game, hours, minutes, seconds);
         fflush(fichier);
         fclose(fichier);
         rename("tmp.time.tmp", "tmp.time");
@@ -278,6 +298,7 @@ void *handleAPI()
 
 
 int main(void) {
+    restart:
     setlocale(LC_ALL, "fr_FR.UTF-8");
 
     char **playlist = getAllFiles();
@@ -285,17 +306,16 @@ int main(void) {
     pthread_t downloadThreadId;
     pthread_create(&downloadThreadId, NULL, downloadFromServer, (void *)video);
     pthread_join(downloadThreadId, NULL);
+    unlink("video_fifo");
     mkfifo("video_fifo", 0666);
 
     char ffmpegCmd[1024];
     snprintf(ffmpegCmd, sizeof(ffmpegCmd),
-        "exec 1>/dev/null 2>/dev/null; "
-        "ffmpeg -re -i video_fifo "
-        "-vf \"drawtext=textfile=./tmp.time:reload=60:x=0:y=1040:fontsize=20:fontcolor=white\" "
-        "-af \"highpass=f=200,lowpass=f=3000\" "
+        "ffmpeg -loglevel debug -re -i video_fifo "
+        "-vf \"drawtext=textfile=./tmp.time:reload=60:x=0:y=1040:fontfile=/usr/share/fonts/truetype/freefont/FreeSansBold.ttf:fontsize=20:fontcolor=white\" "
         "-c:v h264_qsv -preset veryslow -global_quality 1 "
-        "-maxrate 6000k -bufsize 9000k "
-        "-c:a aac -b:a 128k -f flv rtmp://live.twitch.tv/app/%s > /dev/null 2>&1",
+        "-b:v 5000k -maxrate 6100k -bufsize 18000k "
+        "-c:a aac -b:a 160k -async 1 -f flv rtmp://live.twitch.tv/app/%s > logs.txt 2>&1",
         STREAM_KEY);
     
 
@@ -314,31 +334,66 @@ int main(void) {
     fgets(tmp, sizeof(tmp), fichier);
 
     long timeleft = convert_to_timestamp(tmp);
+    long timestart = (long)time(NULL);
 
     while (1) {
-        // Diffuser la vidéo actuelle
-        pthread_create(&writerThread, NULL, writeToFifo, (void *)video);
+        pthread_create(&writerThread, NULL, writeToFifo, (void *)video);                    // Lancement de la video
 
-        // Télécharger la prochaine vidéo
         char *nextVideo = playlist[chooseVideo(size_of_double_array(playlist))];
-        pthread_create(&downloadThreadId, NULL, downloadFromServer, (void *)nextVideo);
-        snprintf(tmp, sizeof(tmp), "python3 handle_name_changing.py -u \"%s\" -r", video);
+        pthread_create(&downloadThreadId, NULL, downloadFromServer, (void *)nextVideo);     // Téléchargement de la prochaine
+        snprintf(tmp, sizeof(tmp), "python3 handle_twitchAPI.py -u \"%s\" -re", video);
         system(tmp);
 
 
-        pthread_join(downloadThreadId, NULL);
-        pthread_join(writerThread, NULL);
+        pthread_join(downloadThreadId, NULL);                                               // Attente fin de téléchargement 
+        pthread_join(writerThread, NULL);                                                   // Attente fin de vidéo 
+        printf("video is terminated, launching placeholder...\n");
 
-
-        remove(video);
+        snprintf(tmp, sizeof(tmp), "rm -f \"%s%s\"", LOCAL_PATH, video);
+        system(tmp);
         video = nextVideo;
+
+
         if (timeleft - (long)time(NULL) < 600)
         {
-            sleep(600);
+            snprintf(tmp, sizeof(tmp), "rm -f \"%s%s\"", LOCAL_PATH, nextVideo);    // removes video that was supposed to be played
+            system(tmp);
+
+            wait_again:
+            char ending[26];
+            char next[26];
+            char streamer[64];
+            sleep(timeleft - (long)time(NULL));                             // sleep until match start
+            fgets(ending, sizeof(ending), fichier);                         // gets timestamp of match ending
+            timeleft = convert_to_timestamp(ending);
+            fgets(streamer, sizeof(streamer), fichier);                     // gets streamer to raid
+            fclose(fichier);                                                // end of file is reached, closing file
+            snprintf(tmp, sizeof(tmp), "python3 handle_twitchAPI.py -ra %s", streamer);       //stream isn't stopped yet
+            system(tmp);                                               // raid streamer
+            printf("closing stream\n");                                     // close stream
+            system("echo q > ./video_fifo");
+
+            sleep(timeleft - (long)time(NULL));                             // sleep until match ending
+            handleAPI();                                                    // refresh api data
+            fichier = fopen("next.data", "r");
             fgets(tmp, sizeof(tmp), fichier);
-            timeleft = convert_to_timestamp(tmp);
-            sleep((long)time(NULL) - timeleft);
+            fgets(tmp, sizeof(tmp), fichier);
+            fgets(next, sizeof(next), fichier);                             // gets timestamp of next match
+            timeleft = convert_to_timestamp(next);
+            if (timeleft - (long)time(NULL) < 3600)  goto wait_again;       // if next match starts in less than an hour, wait again
+            else                                     goto restart;          // else, restart the stream
         }
+
+        else if ((long)time(NULL) - timestart > 18000)
+        {
+            snprintf(tmp, sizeof(tmp), "rm -f \"%s%s\"", LOCAL_PATH, nextVideo);
+            system(tmp);
+            printf("closing stream\n");
+            system("echo q > ./video_fifo");
+            printf("resetting stream...\n");
+            goto restart;
+        }
+        
     }
 
     return 0;

@@ -7,14 +7,12 @@ from asyncio import run
 from argparse import ArgumentParser
 
 
-
 # Configurations Twitch
 CHANNEL_ID = "Channel id"
 TWITCH_APP_ID = "twitch bot id"
 TWITCH_APP_SECRET = "twitch bot password or something ?"
 ACCESS_TOKEN = "bot access token"
 REFRESH_TOKEN = "bot refresh token (when access token expires)"
-STREAM_KEY =  "your twitch channel stream key"
 CURRENT_CHANNEL_NAME = "channel name"
 WORDLIST = [ 
     ["[special event]"],
@@ -29,7 +27,6 @@ WORDLIST = [
 CATEGORY_IDS = [509663, 30921, 513143, 516575, 21779, 8224, 504461, 33214]
 # category id's founds at https://github.com/Nerothos/TwithGameList
 STREAM_TAGS = ["tags", "on", "stream"]
-LOCAL_PATH = "local path to save videos files"
 
 def getGame(u):
     title = u.lower()
@@ -57,8 +54,6 @@ async def update(path):
     global ACCESS_TOKEN
     global REFRESH_TOKEN
 
-    print(f"changing stream title to {path[:-4]} - [REDIFFUSION]")
-
     twitch = await Twitch(TWITCH_APP_ID, TWITCH_APP_SECRET)
     target_scope = [AuthScope.CHANNEL_MANAGE_BROADCAST, AuthScope.USER_EDIT_BROADCAST]
 
@@ -75,6 +70,20 @@ async def update(path):
         tags=STREAM_TAGS
         )
     
+    
+async def raid(streamer):
+    global ACCESS_TOKEN
+    global REFRESH_TOKEN
+    twitch = await Twitch(TWITCH_APP_ID, TWITCH_APP_SECRET)
+    target_scope = [AuthScope.CHANNEL_MANAGE_BROADCAST, AuthScope.USER_EDIT_BROADCAST]
+    if exists("tokens.cred"):
+        ACCESS_TOKEN, REFRESH_TOKEN = read_tokens()
+    await twitch.set_user_authentication(ACCESS_TOKEN, target_scope, REFRESH_TOKEN)
+    from_channel_id = await first(twitch.get_users(logins=[CURRENT_CHANNEL_NAME]))
+    to_channel_id = await first(twitch.get_users(logins=[streamer]))
+
+    await twitch.start_raid(from_channel_id.id, to_channel_id.id)
+
 
 async def refresh():
     global ACCESS_TOKEN
@@ -89,13 +98,18 @@ async def refresh():
 async def main():
     parser = ArgumentParser()
     parser.add_argument("-u", "--update-stream", type=str, help="updates stream informations such as title ans category")
-    parser.add_argument("-r",  "--refresh-token", action="store_true", help="refreshes twitch tokens")
+    parser.add_argument("-re",  "--refresh-token", action="store_true", help="refreshes twitch tokens")
+    parser.add_argument("-ra",  "--raid-channel", type=str, help="raid given twitch channel")
 
     args = parser.parse_args()
     if args.update_stream:
         await update(args.update_stream)
     if args.refresh_token:
         await refresh()
+    if args.raid_channel:
+        await raid(args.raid_channel)
+
+
 
 
 if __name__ == "__main__":
