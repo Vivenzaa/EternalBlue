@@ -7,7 +7,6 @@ from asyncio import run
 from argparse import ArgumentParser
 
 
-# Configurations Twitch
 CHANNEL_ID = "Channel id"
 TWITCH_APP_ID = "twitch bot id"
 TWITCH_APP_SECRET = "twitch bot password or something ?"
