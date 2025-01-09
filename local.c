@@ -9,16 +9,106 @@
 #include <fcntl.h>
 #include <cjson/cJSON.h>
 #include <dirent.h>
+#include <libavformat/avformat.h>
 
-#define STREAM_KEY "your twitch channel stream key"
-#define REMOTE_IP "127.0.0.1"
-#define REMOTE_NAME "your remote server username"
-#define REMOTE_PATH_START "where are your videos stored"
-#define SSH_PATH "/home/local_username/.ssh/id_rsa"
+#define STREAM_KEY "your twitch stream key"
 #define LOCAL_PATH "videos/"
-#define SEED 721077     // what could that number be
+#define SEED 0xb00b5
 
 
+
+char *get_metadata(char *filename)
+{
+    AVFormatContext *fmt_ctx = NULL;
+    avformat_open_input(&fmt_ctx, filename, NULL, NULL);
+    AVDictionaryEntry *tag = NULL;
+
+    while ((tag = av_dict_get(fmt_ctx->metadata, "", tag, AV_DICT_IGNORE_SUFFIX))) {
+        if (strcmp(tag->key, "comment") == 0) {
+            char *toReturn = malloc(sizeof(char *) * strlen(tag->value));
+            strcpy(toReturn, tag->value);
+            avformat_close_input(&fmt_ctx);   
+            return toReturn;
+        }
+    }
+    return 0;
+}
+
+
+void write_metadata(char *filename, char *toWrite)
+{
+    char *output = "30784230304235.mp4";
+    AVFormatContext *fmt_ctx = NULL;
+    AVFormatContext *out_ctx = NULL;
+
+    if (avformat_open_input(&fmt_ctx, filename, NULL, NULL) < 0) {
+        fprintf(stderr, "Erreur : Impossible d'ouvrir le fichier %s\n", filename);
+        exit(1);
+    }
+
+    avformat_alloc_output_context2(&out_ctx, NULL, NULL, output);
+    for (unsigned int i = 0; i < fmt_ctx->nb_streams; i++) {
+        AVStream *in_stream = fmt_ctx->streams[i];
+        AVStream *out_stream = avformat_new_stream(out_ctx, NULL);
+        if (!out_stream) {
+            fprintf(stderr, "Erreur : Impossible de copier le flux\n");
+            avformat_close_input(&fmt_ctx);
+            avformat_free_context(out_ctx);
+            exit(1);
+        }
+        avcodec_parameters_copy(out_stream->codecpar, in_stream->codecpar);
+        out_stream->time_base = in_stream->time_base;
+    }
+    av_dict_set(&out_ctx->metadata, "comment", toWrite, 0);
+
+
+    if (!(out_ctx->oformat->flags & AVFMT_NOFILE)) {
+        if (avio_open(&out_ctx->pb, output, AVIO_FLAG_WRITE) < 0) {
+            fprintf(stderr, "Erreur : Impossible d'ouvrir le fichier de sortie\n");
+            avformat_close_input(&fmt_ctx);
+            avformat_free_context(out_ctx);
+            exit(1);
+        }
+    }
+
+
+    if (avformat_write_header(out_ctx, NULL) < 0) {
+        fprintf(stderr, "Erreur : Impossible d'écrire l'en-tête\n");
+        avformat_close_input(&fmt_ctx);
+        avformat_free_context(out_ctx);
+        exit(1);
+    }
+
+
+    AVPacket pkt;
+    while (av_read_frame(fmt_ctx, &pkt) >= 0) {
+        AVStream *in_stream = fmt_ctx->streams[pkt.stream_index];
+        AVStream *out_stream = out_ctx->streams[pkt.stream_index];
+
+        pkt.pts = av_rescale_q_rnd(pkt.pts, in_stream->time_base, out_stream->time_base, AV_ROUND_NEAR_INF | AV_ROUND_PASS_MINMAX);
+        pkt.dts = av_rescale_q_rnd(pkt.dts, in_stream->time_base, out_stream->time_base, AV_ROUND_NEAR_INF | AV_ROUND_PASS_MINMAX);
+        pkt.duration = av_rescale_q(pkt.duration, in_stream->time_base, out_stream->time_base);
+        pkt.pos = -1;
+
+        if (av_interleaved_write_frame(out_ctx, &pkt) < 0) {
+            fprintf(stderr, "Erreur : Impossible d'écrire un paquet\n");
+            break;
+        }
+        av_packet_unref(&pkt);
+    }
+
+    av_write_trailer(out_ctx);
+
+    avformat_close_input(&fmt_ctx);
+    if (!(out_ctx->oformat->flags & AVFMT_NOFILE)) {
+        avio_closep(&out_ctx->pb);
+    }
+
+    avformat_close_input(&fmt_ctx);
+
+    remove(filename);
+    rename(output, filename);
+}
 
 
 char **getAllFiles()
@@ -63,6 +153,43 @@ char **getAllFiles()
 }
 
 
+char **file_lines(char *filename) {
+    FILE *fichier = fopen(filename, "r");
+    char **lines = NULL;
+    char buffer[256];
+    int count = 0;
+
+    while (fgets(buffer, 256, fichier)) {
+        char *line = malloc(strlen(buffer) + 1);
+        if (!line) {
+            fprintf(stderr, "Erreur : allocation mémoire échouée\n");
+            exit(EXIT_FAILURE);
+        }
+        strcpy(line, buffer);
+        line[strlen(line) - 1] = '\0';
+
+        char **temp = realloc(lines, sizeof(char *) * (count + 1));
+        if (!temp) {
+            fprintf(stderr, "Erreur : allocation mémoire échouée\n");
+            exit(EXIT_FAILURE);
+        }
+        lines = temp;
+
+        lines[count++] = line;
+    }
+    
+    char **temp = realloc(lines, sizeof(char *) * (count + 1));
+    if (!temp) {
+        fprintf(stderr, "Erreur : allocation mémoire échouée\n");
+        exit(EXIT_FAILURE);
+    }
+    lines = temp;
+    lines[count++] = NULL;
+
+    return lines;
+}
+
+
 unsigned short chooseVideo(unsigned short x)       // x is the len of file list, NOT the last index of filelist
 {
     unsigned short tmp = (unsigned int)time(NULL) * SEED * 0x5f3759df;   // what the fuck?
@@ -77,7 +204,6 @@ unsigned int size_of_double_array(char **array) {
     }
     return size;
 }
-
 
 
 long convert_to_timestamp(char *datetime) {     // converts YYYY-MM-DDThh:mm:ss.000Z to timestamp
@@ -101,7 +227,6 @@ long convert_to_timestamp(char *datetime) {     // converts YYYY-MM-DDThh:mm:ss.
 
     return (long)timestamp;
 }
-
 
 
 void *cmdRunInThread(void *str)
@@ -145,6 +270,150 @@ void *handleAPI()
 }
 
 
+int get_video_duration(char *video)
+{
+    char cmd[256];
+    snprintf(cmd, sizeof(cmd), "ffprobe -show_entries format=duration \"./%s%s\" > drtn.tmp", LOCAL_PATH, video);
+    system(cmd);
+
+    FILE *fichier = fopen("drtn.tmp", "r");
+    fgets(cmd, sizeof(cmd), fichier);
+    fgets(cmd, sizeof(cmd), fichier);
+    char duration[6];
+
+    int i = 9;
+    while(cmd[i] != '.')
+    {   
+        duration[i-9] = cmd[i];
+        i++;
+    }
+    duration[6] = '\0';
+
+    fclose(fichier);
+    remove("drtn.tmp");
+
+    return atoi(duration);
+}
+
+
+int get_undownloaded_videos()
+{
+    char tmp[256];
+    char video[128];
+    snprintf(tmp, sizeof(tmp), "find %s -printf '%%T+ %%p\n' | sort -r | head > ltsvd.tmp", LOCAL_PATH);
+    system(tmp);
+    strcpy(tmp, "\0");
+    FILE *lst = fopen("ltsvd.tmp", "r");
+    do
+    {
+        fgets(tmp, sizeof(tmp), lst);
+    }   
+    while (strlen(tmp) < 31 + strlen(LOCAL_PATH) + 2);
+
+    if (tmp[strlen(tmp) - 1] == '\n')
+        tmp[strlen(tmp) - 1] = '\0';
+    
+    fclose(lst);
+    remove("ltsvd.tmp");
+    for (int i = 31; tmp[i] != '\n' && tmp[i] != '\0' && tmp[i] != EOF; i++)
+    {
+        video[i - 31] = tmp[i];
+        if (tmp[i + 1] == '\0')
+        {
+            video[i-30] = '\0';
+            break;
+        }
+    }
+    char *link = get_metadata(video);
+
+    const char *base_url = "https://www.youtube.com/watch?v=";
+    char url[64];
+    strcpy(url, base_url);
+    int i = 1;
+    while (i < 9999)
+    {
+        snprintf(tmp, sizeof(tmp), "yt-dlp --flat-playlist \"https://www.youtube.com/@KarmineCorpVOD/videos\" --print \"%%(id)s\" --playlist-end %d > recentVids.txt", i);
+        printf("fetching %d video...\n", i);
+        system(tmp);
+
+        FILE *tmpVids = fopen("recentVids.txt", "r");
+        for (int j = 0; j<i; j++)   
+            fgets(tmp, sizeof(tmp), tmpVids);
+
+        tmp[strlen(tmp) - 1] = '\0';
+        strcat(url, tmp);
+        if(strcmp(url, link) == 0)
+        {
+            if (i == 1)
+                return 0;
+            snprintf(tmp, sizeof(tmp), "yt-dlp --flat-playlist \"https://www.youtube.com/@KarmineCorpVOD/videos\" --print \"%%(id)s\" --playlist-end %d > recentVids.txt", i - 1);
+            system(tmp);
+            return i-1;
+        }
+        else
+            strcpy(url, base_url);
+
+        i++;
+    }  
+
+    return 0;
+}
+
+
+void *download_videos(void* playlist)
+{
+    char **play = (char **)playlist;
+    char **videos = file_lines("recentVids.txt");
+    char tmp[256];
+    for (int i = size_of_double_array(videos) - 1; i >= 0; i--)
+    {
+        system("sh extract.sh > cooking.txt");
+        printf("%s\n", videos[i]);
+        snprintf(tmp, sizeof(tmp), "yt-dlp --cookies ./cooking.txt -f 299 %s", videos[i]);
+        system(tmp);
+
+        snprintf(tmp, sizeof(tmp), "yt-dlp --cookies ./cooking.txt -f 299 --print filename %s > %s", videos[i], videos[i]);
+        system(tmp);
+    
+        FILE *fichier = fopen(videos[i], "r");
+        fgets(tmp, sizeof(tmp), fichier);
+        char *oldFilename = malloc(sizeof(char *) * ((strlen(tmp) + 1)));
+        strcpy(oldFilename, tmp);
+        oldFilename[strlen(oldFilename) - 1] = '\0';
+        tmp[strlen(tmp) - strlen(videos[i]) - 8] = '\0';
+        strcat(tmp, ".mp4");
+        rename(oldFilename, tmp);
+        printf("%s\t%s\n", oldFilename, tmp);
+
+        char *fullLink = malloc(strlen("https://www.youtube.com/watch?v=") + strlen(videos[i]) + 3);
+        strcpy(fullLink, "https://www.youtube.com/watch?v=");
+        strcat(fullLink, videos[i]);
+
+        fclose(fichier);
+        write_metadata(tmp, fullLink);
+        char moov[512];
+        snprintf(moov, sizeof(moov), "mv \"%s\" %s", tmp, LOCAL_PATH);
+        system(moov);
+        remove(videos[i]);
+
+        unsigned int size = size_of_double_array(play);
+        char **temp = realloc(play, sizeof(char *) * (size + 1));
+        play = temp;
+        play[size] = tmp;
+        playlist = (void *)play;
+    }
+    int i = 0;
+    while (play[i])
+    {
+        printf("%s\n", play[i]);
+        i++;
+    }
+
+    return play;
+}
+
+
+
 int main(void) {
     restart:
     setlocale(LC_ALL, "fr_FR.UTF-8");
@@ -162,16 +431,19 @@ int main(void) {
         STREAM_KEY);
     
 
+
     pthread_t ffmpegThreadId;
     pthread_create(&ffmpegThreadId, NULL, cmdRunInThread, (void *)ffmpegCmd);
     handleAPI();
     
     char tmp[256];
 
+    /*------------------------------------------HANDLE WEB MONITORING------------------------------------------*/
     FILE *fichier = fopen("next.data", "r");
     fgets(tmp, sizeof(tmp), fichier);
     fgets(tmp, sizeof(tmp), fichier);
     fgets(tmp, sizeof(tmp), fichier);
+    /*------------------------------------------HANDLE WEB MONITORING------------------------------------------*/
 
     long timeleft = convert_to_timestamp(tmp);
     long timestart = (long)time(NULL);
@@ -179,9 +451,45 @@ int main(void) {
 
     int fifo_fd = open("video_fifo", O_WRONLY);
 
-    while ((long)time(NULL) - timestart < 18000) {
+    while ((long)time(NULL) - timestart < 154000) {
+        if (get_undownloaded_videos())
+        {
+            pthread_t downloaderThr;
+            pthread_create(&downloaderThr, NULL, download_videos, (void *)playlist);
+        }
+            
         printf("%s\n", video);
-        
+
+        /*------------------------------------------HANDLE WEB MONITORING------------------------------------------*/
+        system("python3 handle_twitchAPI.py -ov");                                                                  //
+        FILE *monitoring = fopen("mntrdata.tmp", "r");                                                              //
+        char isOnline[9];                                                                                           //
+        char viewerCount[6];                                                                                        //
+                                                                                                                    //
+        fgets(isOnline, sizeof(isOnline), monitoring);                                                              //
+        fgets(viewerCount, sizeof(viewerCount), monitoring);                                                        //
+        isOnline[strlen(isOnline) - 1] = '\0';                                                                      //
+        fclose(monitoring);                                                                                         //
+        remove("mntrdata.tmp");                                                                                     //
+                                                                                                                    //
+        monitoring = fopen("/var/www/html/monitoring.json", "w");                                                   //
+        cJSON *json = cJSON_CreateObject();                                                                         //
+                                                                                                                    //
+        cJSON_AddStringToObject(json, "status", isOnline);                                                          //
+        cJSON_AddStringToObject(json, "videoTitle", video);                                                         //
+        cJSON_AddNumberToObject(json, "videoDuration", (double)get_video_duration(video));                          //
+        cJSON_AddNumberToObject(json, "videoStartTime", (double)time(NULL));                                        //
+        cJSON_AddNumberToObject(json, "streamStartTime", (double)timestart);                                        //
+        cJSON_AddNumberToObject(json, "viewers", (double)atoi(viewerCount));                                        //
+                                                                                                                    //
+        char *json_str = cJSON_Print(json);                                                                         //
+        fputs(json_str, monitoring);                                                                                //
+        fclose(monitoring);                                                                                         //
+        cJSON_free(json_str);                                                                                       //
+        cJSON_Delete(json);                                                                                         //
+                                                                                                                    //
+        /*------------------------------------------HANDLE WEB MONITORING------------------------------------------*/
+
         char cmdFIFO[1024];
         if (video != NULL)
             snprintf(cmdFIFO, sizeof(cmdFIFO), "ffmpeg -re -i \"%s%s\" -c copy -f mpegts -", LOCAL_PATH, video);
@@ -235,9 +543,7 @@ int main(void) {
         }
     }
 
-    printf("Twitch limit of 48h is almost reached, closing stream\n");
-    system("echo q > ./video_fifo");
-    printf("resetting stream...\n");
+    printf("Twitch limit of 48h is almost reached, resetting stream...\n");
     close(fifo_fd);
     goto restart;
 

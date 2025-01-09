@@ -3,29 +3,28 @@ from twitchAPI.twitch import Twitch
 from twitchAPI.oauth import refresh_access_token, revoke_token
 from twitchAPI.type import AuthScope
 from twitchAPI.helper import first
+from twitchAPI.object.api import Stream
 from asyncio import run
 from argparse import ArgumentParser
 
 
-CHANNEL_ID = "Channel id"
-TWITCH_APP_ID = "twitch bot id"
-TWITCH_APP_SECRET = "twitch bot password or something ?"
-ACCESS_TOKEN = "bot access token"
-REFRESH_TOKEN = "bot refresh token (when access token expires)"
-CURRENT_CHANNEL_NAME = "channel name"
+TWITCH_APP_ID = "kjnngccbj9fcde0r6jc3kv6jyzofqh"
+TWITCH_APP_SECRET = "ee4iflzar1zoeafxlyacxc2fk4cnwx"
+ACCESS_TOKEN = "b0d40mhy5nfiwr7semuoah1xqub2a6"
+REFRESH_TOKEN = "znxulvxr849r34u6dtk3rxsv4yqz1oigj18p1mm7qk54wxqazl"
+CURRENT_CHANNEL_NAME = "Kc_replays"
 WORDLIST = [ 
-    ["[special event]"],
-    ["words"]
-    ["that"]
-    ["identifies"]
-    ["a"]
-    ["game"]
-    ["uniquely"]
-    ["default option is special event (the first one)"]
-    ]
+    ["kcx"],
+    ["rocket league", "buts", "flip", "spin", "rlcs", "exotiik", "zen", "rl ", " rl", "moist esport", "complexity gaming"],
+    ["tft", "canbizz"],
+    ["valorant", "vct", "redbullhomeground", "game changers", "karmine corp gc", "joueuses", "female", "nelo", "filles", "ninou", "ze1sh", "féminine", "shin", "matriix"],
+    ["lol", "league of legends", "emeamasters", "emea masters", "redbull league of its own", "lfl", "lec", "lck", "eu masters", "academy", "karmine corp blue", "movistar riders", "aegis", "bk rog", "eumasters", "ldlc", "vitality bee", "kcb", "hantera", "t1", "faker", "vitality.bee", "cdf", "coupe de france", "botlane", "gold", "eum", "caliste", "saken"],
+    ["trackmania", "otaaaq", "bren"],
+    ["kurama"],
+    ["fncs"],
+    ]   
 CATEGORY_IDS = [509663, 30921, 513143, 516575, 21779, 8224, 504461, 33214]
-# category id's founds at https://github.com/Nerothos/TwithGameList
-STREAM_TAGS = ["tags", "on", "stream"]
+STREAM_TAGS = ["247Stream", "Français", "KarmineCorp"]
 
 def getGame(u):
     title = u.lower()
@@ -70,6 +69,8 @@ async def update(path):
         )
     
     
+
+    
 async def raid(streamer):
     global ACCESS_TOKEN
     global REFRESH_TOKEN
@@ -94,11 +95,29 @@ async def refresh():
     save_tokens(ACCESS_TOKEN, REFRESH_TOKEN)
 
 
+async def viewers():
+    global ACCESS_TOKEN
+    global REFRESH_TOKEN
+    twitch = await Twitch(TWITCH_APP_ID, TWITCH_APP_SECRET)
+    target_scope = [AuthScope.CHANNEL_MANAGE_BROADCAST, AuthScope.USER_EDIT_BROADCAST]
+    if exists("tokens.cred"):
+        ACCESS_TOKEN, REFRESH_TOKEN = read_tokens()
+    await twitch.set_user_authentication(ACCESS_TOKEN, target_scope, REFRESH_TOKEN)
+    channel_id = await first(twitch.get_users(logins=[CURRENT_CHANNEL_NAME]))
+
+    stream_info = await first(twitch.get_streams(user_id=channel_id.id))
+    if stream_info != None:
+        open("mntrdata.tmp", 'w').write(f"online\n{stream_info.viewer_count - 1}")
+    else:
+        open("mntrdata.tmp", 'w').write(f"offline\n0")
+    
+
 async def main():
     parser = ArgumentParser()
     parser.add_argument("-u", "--update-stream", type=str, help="updates stream informations such as title ans category")
     parser.add_argument("-re",  "--refresh-token", action="store_true", help="refreshes twitch tokens")
     parser.add_argument("-ra",  "--raid-channel", type=str, help="raid given twitch channel")
+    parser.add_argument("-ov",  "--online-viewer", action="store_true", help="writes wether if the stream is online or not and returns viewer count")
 
     args = parser.parse_args()
     if args.update_stream:
@@ -107,8 +126,8 @@ async def main():
         await refresh()
     if args.raid_channel:
         await raid(args.raid_channel)
-
-
+    if args.online_viewer:
+        await viewers()
 
 
 if __name__ == "__main__":

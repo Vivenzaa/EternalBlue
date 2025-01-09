@@ -21,22 +21,12 @@
 
 
 
-
-void* downloadFromServer(void *arg)
+char **getAllUrls()
 {
-    setlocale(LC_ALL, "fr_FR.UTF-8");
-    char command[255];
-    char *remote_path = (char*)arg;
+    printf("fetching all videos...\n");
+    system("yt-dlp --flat-playlist \"https://www.youtube.com/@KarmineCorpVOD/videos\" --print \"%%(id)s\" > recentVids.txt");
 
-    snprintf(command, sizeof(command), "scp -i %s \"%s@%s:%s%s\" %s", SSH_PATH, REMOTE_NAME, REMOTE_IP, REMOTE_PATH_START, remote_path, LOCAL_PATH);
-    system(command);
-    pthread_exit(NULL);
-}
-
-
-char **getAllFiles()
-{
-    FILE *fichier = fopen("files.txt", "r");
+    FILE *fichier = fopen("recentVids.txt", "r");
     char **lines = NULL;
     char buffer[256];
     int count = 0;
@@ -59,6 +49,8 @@ char **getAllFiles()
 
         lines[count++] = line;
     }
+    fclose(fichier);
+    remove("recentVids.txt");
     
     char **temp = realloc(lines, sizeof(char *) * (count + 1));
     if (!temp) {
@@ -79,47 +71,60 @@ unsigned short chooseVideo(unsigned short x)       // x is the len of file list,
 }
 
 
+void *downloadVideo(void *vUrl)
+{
+
+    char *url = (char *)vUrl;
+    char tmp[strlen(url) + strlen("yt-dlp --cookies ./cooking.txt -f 299 ") + 1];
+    strcpy(tmp, "yt-dlp --cookies ./cooking.txt -f 299 ");
+    strcat(tmp, url);
+    system(tmp);
+
+    snprintf(tmp, sizeof(tmp), "yt-dlp --cookies ./cooking.txt -f 299 --print filename %s > %s", url, url);
+    system(tmp);
+
+    FILE *fichier = fopen(url, "r");
+    fgets(tmp, sizeof(tmp), fichier);
+    char *oldFilename = malloc(sizeof(char *) * (strlen(tmp) + 1));
+    strcpy(oldFilename, tmp);
+    oldFilename[strlen(oldFilename) - 1] = '\0';
+    tmp[strlen(tmp) - strlen(url) - 8] = '\0';
+    strcat(tmp, ".mp4");
+    rename(oldFilename, tmp);
+    printf("%s\t%s\n", oldFilename, tmp);
+
+    char moov[strlen(tmp) + strlen(LOCAL_PATH) + 7];
+    snprintf(moov, sizeof(moov), "mv \"%s\" %s", tmp, LOCAL_PATH);
+    system(moov);
+    remove(url);
+
+    return 0;
+}
+
+
+char *getvideoPath(char *url)
+{
+    char tmp[strlen("yt-dlp --cookies ./cooking.txt -f 299 --print filename  > ") + (2 * strlen(url)) + 1];
+    snprintf(tmp, sizeof(tmp), "yt-dlp --cookies ./cooking.txt -f 299 --print filename %s > %s", url, url);
+    system(tmp);
+
+    FILE *fichier = fopen(url, "r");
+    fgets(tmp, sizeof(tmp), fichier);
+    tmp[strlen(tmp) - strlen(url) - 8] = '\0';
+    strcat(tmp, ".mp4");
+    char *toReturn = malloc(sizeof(char *) * strlen(tmp));
+    strcpy(toReturn, tmp);
+
+    return toReturn;
+}
+
+
 unsigned int size_of_double_array(char **array) {
     unsigned int size = 0;
     while (array[size] != NULL) {
         size++;
     }
     return size;
-}
-
-
-int get_bitrate(const char *filename) {
-    char command[512];
-    char temp_file[] = "ffprobe_output.txt";
-    FILE *fp;
-    double bitrate = -1;
-
-    snprintf(command, sizeof(command),
-             "ffprobe -v error -select_streams v:0 -show_entries format=bit_rate -of default=noprint_wrappers=1:nokey=1 \"%s\" > %s",
-             filename, temp_file);
-
-    if (system(command) != 0) {
-        fprintf(stderr, "Erreur lors de l'exécution de ffprobe.\n");
-        return -1;
-    }
-
-    fp = fopen(temp_file, "r");
-    if (fp == NULL) {
-        perror("Erreur lors de l'ouverture du fichier temporaire");
-        return -1;
-    }
-
-    if (fscanf(fp, "%lf", &bitrate) != 1) {
-        fprintf(stderr, "Impossible de lire le bitrate depuis ffprobe.\n");
-        bitrate = -1;
-    }
-
-    fclose(fp);
-    remove(temp_file);
-
-    if ((int)bitrate >= 5600000) return 6000000;
-
-    return (int)bitrate + 400000;
 }
 
 
@@ -249,14 +254,40 @@ void *handleAPI()
 }
 
 
+int get_video_duration(char *video)
+{
+    char cmd[256];
+    snprintf(cmd, sizeof(cmd), "ffprobe -show_entries format=duration \"./%s%s\" > drtn.tmp", LOCAL_PATH, video);
+    system(cmd);
+
+    FILE *fichier = fopen("drtn.tmp", "r");
+    fgets(cmd, sizeof(cmd), fichier);
+    fgets(cmd, sizeof(cmd), fichier);
+    char duration[6];
+
+    int i = 9;
+    while(cmd[i] != '.')
+    {   
+        duration[i-9] = cmd[i];
+        i++;
+    }
+    duration[6] = '\0';
+
+    fclose(fichier);
+    remove("drtn.tmp");
+
+    return atoi(duration);
+}
+
+
 int main(void) {
     restart:
     setlocale(LC_ALL, "fr_FR.UTF-8");
 
-    char **playlist = getAllFiles();
-    char *video = playlist[chooseVideo(size_of_double_array(playlist))];
+    char **playlist = getAllUrls();
+    char *videoUrl = playlist[chooseVideo(size_of_double_array(playlist))];
     pthread_t downloadThreadId;
-    pthread_create(&downloadThreadId, NULL, downloadFromServer, (void *)video);
+    pthread_create(&downloadThreadId, NULL, downloadVideo, (void *)videoUrl);
     pthread_join(downloadThreadId, NULL);
     unlink("video_fifo");
     mkfifo("video_fifo", 0666);
@@ -286,23 +317,54 @@ int main(void) {
 
     long timeleft = convert_to_timestamp(tmp);
     long timestart = (long)time(NULL);
-    char *nextVideo = video;
+    char *nextVideoUrl = videoUrl;
 
     int fifo_fd = open("video_fifo", O_WRONLY);
 
-    while ((long)time(NULL) - timestart < 18200) {
-        printf("%s\n", video);
+    while ((long)time(NULL) - timestart < 154000) {
+        char *videoPath = getvideoPath(videoUrl);
+        char *videoTitle = videoPath;
+        videoTitle[strlen(videoTitle) - 4] = '\0';
+        printf("%s\n", videoTitle);
+
+        system("python3 handle_twitchAPI.py -ov");
+        FILE *monitoring = fopen("mntrdata.tmp", "r");
+        char isOnline[9];
+        char viewerCount[6];
+
+        fgets(isOnline, sizeof(isOnline), monitoring);
+        fgets(viewerCount, sizeof(viewerCount), monitoring);
+        isOnline[strlen(isOnline) - 1] = '\0';
+        fclose(monitoring);
+        remove("mntrdata.tmp");
+
+        monitoring = fopen("monitoring.json", "w");
+        cJSON *json = cJSON_CreateObject();
+
+        cJSON_AddStringToObject(json, "status", isOnline);
+        cJSON_AddStringToObject(json, "videoTitle", videoTitle);
+        cJSON_AddNumberToObject(json, "videoDuration", (double)get_video_duration(videoPath));
+        cJSON_AddNumberToObject(json, "videoStartTime", (double)time(NULL));
+        cJSON_AddNumberToObject(json, "streamStartTime", (double)timestart);
+        cJSON_AddNumberToObject(json, "viewers", (double)atoi(viewerCount));
+
+        char *json_str = cJSON_Print(json);
+        fputs(json_str, monitoring);
+        fclose(monitoring);
+        cJSON_free(json_str);
+        cJSON_Delete(json);
+
         
         char cmdFIFO[1024];
-        if (video != NULL)
-            snprintf(cmdFIFO, sizeof(cmdFIFO), "ffmpeg -re -i \"%s%s\" -c copy -f mpegts -", LOCAL_PATH, video);
+        if (videoPath != NULL)
+            snprintf(cmdFIFO, sizeof(cmdFIFO), "ffmpeg -re -i \"%s%s\" -c copy -f mpegts -", LOCAL_PATH, videoPath);
         else 
             snprintf(cmdFIFO, sizeof(cmdFIFO), "ffmpeg -re -i placeholder.mp4 -c:v libx264 -f mpegts -");
 
-        while (video == nextVideo)
-            nextVideo = playlist[chooseVideo(size_of_double_array(playlist))];
-        pthread_create(&downloadThreadId, NULL, downloadFromServer, (void *)nextVideo);     // Téléchargement de la prochaine
-        snprintf(tmp, sizeof(tmp), "python3 handle_twitchAPI.py -u \"%s\" -re", video);
+        while (videoUrl == nextVideoUrl)
+            nextVideoUrl = playlist[chooseVideo(size_of_double_array(playlist))];
+        pthread_create(&downloadThreadId, NULL, downloadVideo, (void *)nextVideoUrl);     // Téléchargement de la prochaine
+        snprintf(tmp, sizeof(tmp), "python3 handle_twitchAPI.py -u \"%s\" -re", videoPath);
         system(tmp);
 
         FILE *ffmpeg = popen(cmdFIFO, "r");
@@ -313,14 +375,16 @@ int main(void) {
         }
         pclose(ffmpeg);
 
-        snprintf(tmp, sizeof(tmp), "rm -f \"%s%s\"", LOCAL_PATH, video);
+        snprintf(tmp, sizeof(tmp), "rm -f \"%s%s\"", LOCAL_PATH, videoUrl);
         system(tmp);
-        video = nextVideo;
+        videoUrl = nextVideoUrl;
 
 
         if (timeleft - (long)time(NULL) < 600)
         {
-            snprintf(tmp, sizeof(tmp), "rm -f \"%s%s\"", LOCAL_PATH, nextVideo);    // removes video that was supposed to be played
+            char *nextVideoPath = nextVideoUrl;
+            nextVideoPath[strlen(nextVideoPath) - 4] = '\0';
+            snprintf(tmp, sizeof(tmp), "rm -f \"%s%s\"", LOCAL_PATH, nextVideoPath);    // removes video that was supposed to be played
             system(tmp);
 
             wait_again:
@@ -350,7 +414,9 @@ int main(void) {
         }
     }
 
-    snprintf(tmp, sizeof(tmp), "rm -f \"%s%s\"", LOCAL_PATH, nextVideo);
+    char *nextVideoPath = nextVideoUrl;
+    nextVideoPath[strlen(nextVideoPath) - 4] = '\0';
+    snprintf(tmp, sizeof(tmp), "rm -f \"%s%s\"", LOCAL_PATH, nextVideoPath);
     system(tmp);
     printf("Twitch limit of 48h is almost reached, closing stream\n");
     system("echo q > ./video_fifo");

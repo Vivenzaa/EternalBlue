@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitoring Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f9;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        .dashboard {
+            background: #fff;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+            padding: 20px;
+            max-width: 400px;
+            width: 100%;
+            text-align: center;
+        }
+
+        .status {
+            font-size: 1.5rem;
+            margin-bottom: 10px;
+        }
+
+        .status.online {
+            color: green;
+        }
+
+        .status.offline {
+            color: red;
+        }
+
+        .progress-bar {
+            position: relative;
+            background: #ddd;
+            border-radius: 10px;
+            overflow: hidden;
+            height: 20px;
+            margin: 20px 0;
+        }
+
+        .progress-bar > div {
+            height: 100%;
+            background: #4caf50;
+            width: 0%;
+            transition: width 0.3s;
+        }
+
+        .video-title {
+            font-size: 1.2rem;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+
+        .viewers, .stream-time {
+            font-size: 1rem;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard">
+        <div id="status" class="status offline">Offline</div>
+        <div class="progress-bar">
+            <div id="progress" style="width: 0%;"></div>
+        </div>
+        <div id="title" class="video-title">No video playing</div>
+        <div id="viewers" class="viewers">Viewers: 0</div>
+        <div id="stream-time" class="stream-time">Total Stream Time: 00:00:00</div>
+    </div>
+
+    <script>
+        function formatTime(seconds) {
+            const hrs = Math.floor(seconds / 3600).toString().padStart(2, '0');
+            const mins = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
+            const secs = (seconds % 60).toString().padStart(2, '0');
+            return `${hrs}:${mins}:${secs}`;
+        }
+
+        async function fetchMonitoringData() {
+            try {
+                const response = await fetch('monitoring.json'); // Chemin vers le fichier JSON
+                if (!response.ok) throw new Error('Failed to fetch monitoring data');
+                const data = await response.json();
+
+                const now = Math.floor(Date.now() / 1000);
+
+                // Mise à jour de l'état
+                const statusElement = document.getElementById('status');
+                if (data.status === 'online') {
+                    statusElement.textContent = 'Online';
+                    statusElement.className = 'status online';
+                } else {
+                    statusElement.textContent = 'Offline';
+                    statusElement.className = 'status offline';
+                }
+
+                // Mise à jour du titre de la vidéo
+                document.getElementById('title').textContent = data.videoTitle || 'No video playing';
+
+                // Calcul et mise à jour de la barre de progression
+                if (data.videoDuration && data.videoStartTime) {
+                    const elapsed = now - data.videoStartTime;
+                    const progressPercent = Math.min((elapsed / data.videoDuration) * 100, 100);
+                    const progress = document.getElementById('progress');
+                    progress.style.width = `${progressPercent}%`;
+                }
+
+                // Mise à jour du nombre de viewers
+                document.getElementById('viewers').textContent = `Viewers: ${data.viewers || 0}`;
+
+                // Calcul et mise à jour du temps total de stream
+                if (data.streamStartTime) {
+                    const totalStreamTime = now - data.streamStartTime;
+                    document.getElementById('stream-time').textContent = `Total Stream Time: ${formatTime(totalStreamTime)}`;
+                } else {
+                    document.getElementById('stream-time').textContent = 'Total Stream Time: 00:00:00';
+                }
+
+            } catch (error) {
+                console.error('Error fetching monitoring data:', error);
+            }
+        }
+
+        // Rafraîchir toutes les secondes
+        setInterval(fetchMonitoringData, 1000);
+        fetchMonitoringData();
+    </script>
+</body>
+</html>
