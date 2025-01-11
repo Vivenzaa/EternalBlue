@@ -11,9 +11,9 @@
 #include <dirent.h>
 #include <libavformat/avformat.h>
 
-#define STREAM_KEY "your twitch stream key"
+#define STREAM_KEY "your twitch channel stream key"
 #define LOCAL_PATH "videos/"
-#define SEED 0xb00b5
+#define SEED 721077     // what could that number be
 
 
 
@@ -231,6 +231,7 @@ long convert_to_timestamp(char *datetime) {     // converts YYYY-MM-DDThh:mm:ss.
 
 void *cmdRunInThread(void *str)
 {
+    printf("launching main ffmpeg");
     const char *cmd = (const char *)str;
     system(cmd);
     return NULL;
@@ -332,7 +333,7 @@ int get_undownloaded_videos()
     int i = 1;
     while (i < 9999)
     {
-        snprintf(tmp, sizeof(tmp), "yt-dlp --flat-playlist \"https://www.youtube.com/@KarmineCorpVOD/videos\" --print \"%%(id)s\" --playlist-end %d > recentVids.txt", i);
+        snprintf(tmp, sizeof(tmp), "yt-dlp --cookies ./cooking.txt --flat-playlist \"https://www.youtube.com/@KarmineCorpVOD/videos\" --print \"%%(id)s\" --playlist-end %d > recentVids.txt", i);
         printf("fetching %d video...\n", i);
         system(tmp);
 
@@ -346,7 +347,7 @@ int get_undownloaded_videos()
         {
             if (i == 1)
                 return 0;
-            snprintf(tmp, sizeof(tmp), "yt-dlp --flat-playlist \"https://www.youtube.com/@KarmineCorpVOD/videos\" --print \"%%(id)s\" --playlist-end %d > recentVids.txt", i - 1);
+            snprintf(tmp, sizeof(tmp), "yt-dlp --cookies ./cooking.txt --flat-playlist \"https://www.youtube.com/@KarmineCorpVOD/videos\" --print \"%%(id)s\" --playlist-end %d > recentVids.txt", i - 1);
             system(tmp);
             return i-1;
         }
@@ -360,14 +361,12 @@ int get_undownloaded_videos()
 }
 
 
-void *download_videos(void* playlist)
+void *download_videos(void* bool)
 {
-    char **play = (char **)playlist;
     char **videos = file_lines("recentVids.txt");
     char tmp[256];
     for (int i = size_of_double_array(videos) - 1; i >= 0; i--)
     {
-        system("sh extract.sh > cooking.txt");
         printf("%s\n", videos[i]);
         snprintf(tmp, sizeof(tmp), "yt-dlp --cookies ./cooking.txt -f 299 %s", videos[i]);
         system(tmp);
@@ -395,21 +394,13 @@ void *download_videos(void* playlist)
         snprintf(moov, sizeof(moov), "mv \"%s\" %s", tmp, LOCAL_PATH);
         system(moov);
         remove(videos[i]);
-
-        unsigned int size = size_of_double_array(play);
-        char **temp = realloc(play, sizeof(char *) * (size + 1));
-        play = temp;
-        play[size] = tmp;
-        playlist = (void *)play;
-    }
-    int i = 0;
-    while (play[i])
-    {
-        printf("%s\n", play[i]);
-        i++;
     }
 
-    return play;
+    int *a = (int *)bool;
+    *a = 1;
+    bool = (void *)a;
+
+    return bool;
 }
 
 
@@ -423,19 +414,14 @@ int main(void) {
     unlink("video_fifo");
     mkfifo("video_fifo", 0666);
 
-    char ffmpegCmd[1024];
+    char ffmpegCmd[256];
     snprintf(ffmpegCmd, sizeof(ffmpegCmd),
         "ffmpeg -loglevel debug -re -i video_fifo "
         "-c:v copy -bufsize 18000k "
         "-c:a copy -f flv rtmp://live.twitch.tv/app/%s > logs.txt 2>&1",
         STREAM_KEY);
-    
 
-
-    pthread_t ffmpegThreadId;
-    pthread_create(&ffmpegThreadId, NULL, cmdRunInThread, (void *)ffmpegCmd);
     handleAPI();
-    
     char tmp[256];
 
     /*------------------------------------------HANDLE WEB MONITORING------------------------------------------*/
@@ -449,13 +435,22 @@ int main(void) {
     long timestart = (long)time(NULL);
     char *nextVideo = video;
 
+    pthread_t ffmpegThreadId;
+    pthread_create(&ffmpegThreadId, NULL, cmdRunInThread, (void *)ffmpegCmd);
+
     int fifo_fd = open("video_fifo", O_WRONLY);
+    int isDownloaded = 0;
 
     while ((long)time(NULL) - timestart < 154000) {
         if (get_undownloaded_videos())
         {
             pthread_t downloaderThr;
-            pthread_create(&downloaderThr, NULL, download_videos, (void *)playlist);
+            pthread_create(&downloaderThr, NULL, download_videos, (void *)&isDownloaded);
+        }
+        if(isDownloaded)
+        {
+            isDownloaded = 0;
+            playlist = getAllFiles();
         }
             
         printf("%s\n", video);
