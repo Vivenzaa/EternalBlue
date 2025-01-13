@@ -1,30 +1,29 @@
 from os.path import exists
 from twitchAPI.twitch import Twitch
-from twitchAPI.oauth import refresh_access_token, revoke_token
+from twitchAPI.oauth import refresh_access_token, revoke_token, UserAuthenticator
 from twitchAPI.type import AuthScope
 from twitchAPI.helper import first
-from twitchAPI.object.api import Stream
 from asyncio import run
 from argparse import ArgumentParser
 
 
 TWITCH_APP_ID = "kjnngccbj9fcde0r6jc3kv6jyzofqh"
 TWITCH_APP_SECRET = "ee4iflzar1zoeafxlyacxc2fk4cnwx"
-ACCESS_TOKEN = "b0d40mhy5nfiwr7semuoah1xqub2a6"
-REFRESH_TOKEN = "znxulvxr849r34u6dtk3rxsv4yqz1oigj18p1mm7qk54wxqazl"
+ACCESS_TOKEN = "qvhl7gihjq1qcjoitzeg26ckg9y3ee"
+REFRESH_TOKEN = "svs3ozdcp34txn80ons3iztukfj1uitembkzobnn6xfoyrbei0"
 CURRENT_CHANNEL_NAME = "Kc_replays"
 WORDLIST = [ 
     ["kcx"],
     ["rocket league", "buts", "flip", "spin", "rlcs", "exotiik", "zen", "rl ", " rl", "moist esport", "complexity gaming"],
     ["tft", "canbizz"],
     ["valorant", "vct", "redbullhomeground", "game changers", "karmine corp gc", "joueuses", "female", "nelo", "filles", "ninou", "ze1sh", "féminine", "shin", "matriix"],
-    ["lol", "league of legends", "emeamasters", "emea masters", "redbull league of its own", "lfl", "lec", "lck", "eu masters", "academy", "karmine corp blue", "movistar riders", "aegis", "bk rog", "eumasters", "ldlc", "vitality bee", "kcb", "hantera", "t1", "faker", "vitality.bee", "cdf", "coupe de france", "botlane", "gold", "eum", "caliste", "saken"],
+    ["lol", "league of legends", "div2lol", "emeamasters", "emea masters", "redbull league of its own", "lfl", "lec", "lck", "eu masters", "academy", "karmine corp blue", "movistar riders", "aegis", "bk rog", "eumasters", "ldlc", "vitality bee", "kcb", "hantera", "t1", "faker", "vitality.bee", "cdf", "coupe de france", "botlane", "gold", "eum", "caliste", "saken"],
     ["trackmania", "otaaaq", "bren"],
     ["kurama"],
     ["fncs"],
     ]   
-CATEGORY_IDS = [509663, 30921, 513143, 516575, 21779, 8224, 504461, 33214]
-STREAM_TAGS = ["247Stream", "Français", "KarmineCorp"]
+CATEGORY_IDS = [509663, 30921, 513143, 516575, 21779, 687129551, 504461, 33214]
+STREAM_TAGS = ["247Stream", "botstream", "Français", "KarmineCorp"]
 
 def getGame(u):
     title = u.lower()
@@ -69,16 +68,20 @@ async def update(path):
         )
     
     
-
-    
 async def raid(streamer):
     global ACCESS_TOKEN
     global REFRESH_TOKEN
     twitch = await Twitch(TWITCH_APP_ID, TWITCH_APP_SECRET)
-    target_scope = [AuthScope.CHANNEL_MANAGE_BROADCAST, AuthScope.USER_EDIT_BROADCAST]
+    target_scope = [AuthScope.CHANNEL_MANAGE_BROADCAST, AuthScope.USER_EDIT_BROADCAST, AuthScope.CHANNEL_MANAGE_RAIDS]
     if exists("tokens.cred"):
         ACCESS_TOKEN, REFRESH_TOKEN = read_tokens()
     await twitch.set_user_authentication(ACCESS_TOKEN, target_scope, REFRESH_TOKEN)
+    #await twitch.authenticate_app([])
+    #auth = UserAuthenticator(twitch, target_scope)
+    #token, refresh_token = await auth.authenticate()
+
+    #print("Access Token:", token)
+    #print("Refresh Token:", refresh_token)
     from_channel_id = await first(twitch.get_users(logins=[CURRENT_CHANNEL_NAME]))
     to_channel_id = await first(twitch.get_users(logins=[streamer]))
 

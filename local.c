@@ -11,10 +11,24 @@
 #include <dirent.h>
 #include <libavformat/avformat.h>
 
-#define STREAM_KEY "your twitch channel stream key"
+#define STREAM_KEY "live_1219233412_x9qHLfK4nDukOO8SFaiRNjqivyFuGh"
 #define LOCAL_PATH "videos/"
-#define SEED 721077     // what could that number be
+#define SEED 0xb00b5
 
+
+void log2file(char *toWrite)
+{
+    time_t current_time;
+    struct tm * time_info;
+    char timeString[9];
+    time(&current_time);
+    time_info = localtime(&current_time);
+    strftime(timeString, sizeof(timeString), "%H:%M:%S", time_info);
+
+    FILE *fichier = fopen("console.log", "a");
+    fprintf(fichier, "[%s] %s\n", timeString, toWrite);
+    fclose(fichier);
+}
 
 
 char *get_metadata(char *filename)
@@ -42,7 +56,7 @@ void write_metadata(char *filename, char *toWrite)
     AVFormatContext *out_ctx = NULL;
 
     if (avformat_open_input(&fmt_ctx, filename, NULL, NULL) < 0) {
-        fprintf(stderr, "Erreur : Impossible d'ouvrir le fichier %s\n", filename);
+        log2file("Erreur : Impossible d'ouvrir le fichier dans lequel écrire les métadonnées");
         exit(1);
     }
 
@@ -51,7 +65,7 @@ void write_metadata(char *filename, char *toWrite)
         AVStream *in_stream = fmt_ctx->streams[i];
         AVStream *out_stream = avformat_new_stream(out_ctx, NULL);
         if (!out_stream) {
-            fprintf(stderr, "Erreur : Impossible de copier le flux\n");
+            log2file("Erreur : Impossible de copier le flux");
             avformat_close_input(&fmt_ctx);
             avformat_free_context(out_ctx);
             exit(1);
@@ -64,7 +78,7 @@ void write_metadata(char *filename, char *toWrite)
 
     if (!(out_ctx->oformat->flags & AVFMT_NOFILE)) {
         if (avio_open(&out_ctx->pb, output, AVIO_FLAG_WRITE) < 0) {
-            fprintf(stderr, "Erreur : Impossible d'ouvrir le fichier de sortie\n");
+            log2file("write_metadata : Impossible d'ouvrir le fichier de sortie");
             avformat_close_input(&fmt_ctx);
             avformat_free_context(out_ctx);
             exit(1);
@@ -73,7 +87,7 @@ void write_metadata(char *filename, char *toWrite)
 
 
     if (avformat_write_header(out_ctx, NULL) < 0) {
-        fprintf(stderr, "Erreur : Impossible d'écrire l'en-tête\n");
+        log2file("write_metadata : Impossible d'écrire l'en-tête");
         avformat_close_input(&fmt_ctx);
         avformat_free_context(out_ctx);
         exit(1);
@@ -91,7 +105,7 @@ void write_metadata(char *filename, char *toWrite)
         pkt.pos = -1;
 
         if (av_interleaved_write_frame(out_ctx, &pkt) < 0) {
-            fprintf(stderr, "Erreur : Impossible d'écrire un paquet\n");
+            log2file("write_metadata : Impossible d'écrire un paquet");
             break;
         }
         av_packet_unref(&pkt);
@@ -124,14 +138,14 @@ char **getAllFiles()
         if (strlen(de->d_name) <= 3)     continue;
         char *line = malloc(strlen(de->d_name) + 1);
         if (!line) {
-            fprintf(stderr, "Erreur : allocation mémoire échouée\n");
+            log2file("getAllFiles : allocation mémoire échouée");
             exit(EXIT_FAILURE);
         }
         strcpy(line, de->d_name);
 
         char **temp = realloc(lines, sizeof(char *) * (count + 1));
         if (!temp) {
-            fprintf(stderr, "Erreur : allocation mémoire échouée\n");
+            log2file("getAllFiles : allocation mémoire échouée");
             exit(EXIT_FAILURE);
         }
         lines = temp;
@@ -141,7 +155,7 @@ char **getAllFiles()
     
     char **temp = realloc(lines, sizeof(char *) * (count + 1));
     if (!temp) {
-        fprintf(stderr, "Erreur : allocation mémoire échouée\n");
+        log2file("getAllFiles : allocation mémoire échouée");
         exit(EXIT_FAILURE);
     }
     lines = temp;
@@ -162,7 +176,7 @@ char **file_lines(char *filename) {
     while (fgets(buffer, 256, fichier)) {
         char *line = malloc(strlen(buffer) + 1);
         if (!line) {
-            fprintf(stderr, "Erreur : allocation mémoire échouée\n");
+            log2file("file_lines : allocation mémoire échouée");
             exit(EXIT_FAILURE);
         }
         strcpy(line, buffer);
@@ -170,7 +184,7 @@ char **file_lines(char *filename) {
 
         char **temp = realloc(lines, sizeof(char *) * (count + 1));
         if (!temp) {
-            fprintf(stderr, "Erreur : allocation mémoire échouée\n");
+            log2file("file_lines : allocation mémoire échouée");
             exit(EXIT_FAILURE);
         }
         lines = temp;
@@ -180,7 +194,7 @@ char **file_lines(char *filename) {
     
     char **temp = realloc(lines, sizeof(char *) * (count + 1));
     if (!temp) {
-        fprintf(stderr, "Erreur : allocation mémoire échouée\n");
+        log2file("file_lines : allocation mémoire échouée");
         exit(EXIT_FAILURE);
     }
     lines = temp;
@@ -221,7 +235,7 @@ long convert_to_timestamp(char *datetime) {     // converts YYYY-MM-DDThh:mm:ss.
 
     time_t timestamp = timegm(&tm);
     if (timestamp == -1) {
-        fprintf(stderr, "Erreur : Conversion en timestamp échouée.\n");
+        log2file("convert_to_timestamp : Conversion en timestamp échouée.");
         return -1;
     }
 
@@ -231,7 +245,7 @@ long convert_to_timestamp(char *datetime) {     // converts YYYY-MM-DDThh:mm:ss.
 
 void *cmdRunInThread(void *str)
 {
-    printf("launching main ffmpeg");
+    log2file("launching main ffmpeg");
     const char *cmd = (const char *)str;
     system(cmd);
     return NULL;
@@ -249,7 +263,7 @@ void *handleAPI()
     if (json == NULL) { 
         const char *error_ptr = cJSON_GetErrorPtr(); 
         if (error_ptr != NULL) { 
-            printf("Error: %s\n", error_ptr); 
+            log2file((char *)error_ptr); 
         } 
         cJSON_Delete(json); 
         return NULL; 
@@ -257,10 +271,10 @@ void *handleAPI()
     cJSON *upcomming = cJSON_GetArrayItem(json, 0);
 
     cJSON *opponent = cJSON_GetObjectItemCaseSensitive(upcomming, "team_name_exterieur");
-    cJSON *game = cJSON_GetObjectItemCaseSensitive(upcomming, "competition_name");
-    cJSON *start = cJSON_GetObjectItemCaseSensitive(upcomming, "start");
-    cJSON *end = cJSON_GetObjectItemCaseSensitive(upcomming, "end");
-    cJSON *channel = cJSON_GetObjectItemCaseSensitive(upcomming, "streamLink");
+    cJSON *game     = cJSON_GetObjectItemCaseSensitive(upcomming, "competition_name");
+    cJSON *start    = cJSON_GetObjectItemCaseSensitive(upcomming, "start");
+    cJSON *end      = cJSON_GetObjectItemCaseSensitive(upcomming, "end");
+    cJSON *channel  = cJSON_GetObjectItemCaseSensitive(upcomming, "streamLink");
     
     fichier = fopen("next.data", "w");
     fprintf(fichier, "%s\n%s\n%s\n%s\n%s\n", opponent->valuestring, game->valuestring, start->valuestring, end->valuestring, channel->valuestring);
@@ -334,7 +348,6 @@ int get_undownloaded_videos()
     while (i < 9999)
     {
         snprintf(tmp, sizeof(tmp), "yt-dlp --cookies ./cooking.txt --flat-playlist \"https://www.youtube.com/@KarmineCorpVOD/videos\" --print \"%%(id)s\" --playlist-end %d > recentVids.txt", i);
-        printf("fetching %d video...\n", i);
         system(tmp);
 
         FILE *tmpVids = fopen("recentVids.txt", "r");
@@ -367,7 +380,8 @@ void *download_videos(void* bool)
     char tmp[256];
     for (int i = size_of_double_array(videos) - 1; i >= 0; i--)
     {
-        printf("%s\n", videos[i]);
+        snprintf(tmp, sizeof(tmp), "Downloading %s...", videos[i]);
+        log2file(tmp);
         snprintf(tmp, sizeof(tmp), "yt-dlp --cookies ./cooking.txt -f 299 %s", videos[i]);
         system(tmp);
 
@@ -382,7 +396,6 @@ void *download_videos(void* bool)
         tmp[strlen(tmp) - strlen(videos[i]) - 8] = '\0';
         strcat(tmp, ".mp4");
         rename(oldFilename, tmp);
-        printf("%s\t%s\n", oldFilename, tmp);
 
         char *fullLink = malloc(strlen("https://www.youtube.com/watch?v=") + strlen(videos[i]) + 3);
         strcpy(fullLink, "https://www.youtube.com/watch?v=");
@@ -404,7 +417,6 @@ void *download_videos(void* bool)
 }
 
 
-
 int main(void) {
     restart:
     setlocale(LC_ALL, "fr_FR.UTF-8");
@@ -418,20 +430,11 @@ int main(void) {
     snprintf(ffmpegCmd, sizeof(ffmpegCmd),
         "ffmpeg -loglevel debug -re -i video_fifo "
         "-c:v copy -bufsize 18000k "
-        "-c:a copy -f flv rtmp://live.twitch.tv/app/%s > logs.txt 2>&1",
+        "-c:a copy -f flv rtmp://live.twitch.tv/app/%s > ffmpeg.log 2>&1",
         STREAM_KEY);
 
-    handleAPI();
     char tmp[256];
 
-    /*------------------------------------------HANDLE WEB MONITORING------------------------------------------*/
-    FILE *fichier = fopen("next.data", "r");
-    fgets(tmp, sizeof(tmp), fichier);
-    fgets(tmp, sizeof(tmp), fichier);
-    fgets(tmp, sizeof(tmp), fichier);
-    /*------------------------------------------HANDLE WEB MONITORING------------------------------------------*/
-
-    long timeleft = convert_to_timestamp(tmp);
     long timestart = (long)time(NULL);
     char *nextVideo = video;
 
@@ -439,9 +442,10 @@ int main(void) {
     pthread_create(&ffmpegThreadId, NULL, cmdRunInThread, (void *)ffmpegCmd);
 
     int fifo_fd = open("video_fifo", O_WRONLY);
-    int isDownloaded = 0;
+    //int isDownloaded = 0;
 
     while ((long)time(NULL) - timestart < 154000) {
+        /*
         if (get_undownloaded_videos())
         {
             pthread_t downloaderThr;
@@ -452,8 +456,9 @@ int main(void) {
             isDownloaded = 0;
             playlist = getAllFiles();
         }
-            
-        printf("%s\n", video);
+        */
+        snprintf(tmp, sizeof(tmp), "Now playing %s", video);
+        log2file(tmp);
 
         /*------------------------------------------HANDLE WEB MONITORING------------------------------------------*/
         system("python3 handle_twitchAPI.py -ov");                                                                  //
@@ -507,22 +512,28 @@ int main(void) {
         
         video = nextVideo;
 
+        handleAPI();
+        FILE *fichier = fopen("next.data", "r");
+        fgets(tmp, sizeof(tmp), fichier);
+        fgets(tmp, sizeof(tmp), fichier);
+        fgets(tmp, sizeof(tmp), fichier);
+        long timeleft = convert_to_timestamp(tmp);
 
-        if (timeleft - (long)time(NULL) < 600)
+        if (timeleft - (long)time(NULL) <= (long)get_video_duration(video) + 60)     // if next match starts before next video ends (with one more minute)
         {
-            printf("next match will be starting soon, closing stream...\n");
+            log2file("next match will be starting soon, raiding next stream...");
             wait_again:
             char ending[26];
             char next[26];
             char streamer[64];
-            sleep(timeleft - (long)time(NULL));                             // sleep until match start
             fgets(ending, sizeof(ending), fichier);                         // gets timestamp of match ending
             timeleft = convert_to_timestamp(ending);
             fgets(streamer, sizeof(streamer), fichier);                     // gets streamer to raid
             fclose(fichier);                                                // end of file is reached, closing file
             snprintf(tmp, sizeof(tmp), "python3 handle_twitchAPI.py -ra %s", streamer);       //stream isn't stopped yet
-            system(tmp);                                               // raid streamer
-            printf("closing stream\n");                                     // close stream
+            system(tmp);                                                    // raid streamer
+            sleep(5);
+            log2file("Attempted to raid streamer, closing stream...");      // close stream
             system("echo q > ./video_fifo");
 
             sleep(timeleft - (long)time(NULL));                             // sleep until match ending
@@ -533,12 +544,13 @@ int main(void) {
             fgets(next, sizeof(next), fichier);                             // gets timestamp of next match
             timeleft = convert_to_timestamp(next);
             close(fifo_fd);
-            if (timeleft - (long)time(NULL) < 3600)  goto wait_again;       // if next match starts in less than an hour, wait again
-            else                                     goto restart;          // else, restart the stream
+            if (timeleft - (long)time(NULL) < (long)get_video_duration(video))  
+                                                    goto wait_again;       // if next match starts in less than an hour, wait again
+            else                                    goto restart;          // else, restart the stream
         }
     }
 
-    printf("Twitch limit of 48h is almost reached, resetting stream...\n");
+    log2file("Twitch limit of 48h is almost reached, resetting stream...");
     close(fifo_fd);
     goto restart;
 
