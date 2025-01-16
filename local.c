@@ -17,7 +17,6 @@
 #define CHANNEL_NAME "Kc_Replays"
 #define BOT_ID "kjnngccbj9fcde0r6jc3kv6jyzofqh"
 #define BOT_SECRET "ee4iflzar1zoeafxlyacxc2fk4cnwx"
-#define DEFAULT_ACCESS_TOKEN "84ohke01lr520phb1ntcxez4kl6gl4"
 #define DEFAULT_REFRESH_TOKEN "svs3ozdcp34txn80ons3iztukfj1uitembkzobnn6xfoyrbei0"
 #define SEED 0xb00b5
 
@@ -98,6 +97,7 @@ void write_metadata(char *filename, char *toWrite)
         exit(1);
     }
 
+    log2file("write_metadata: writing metadata on file...");
     avformat_alloc_output_context2(&out_ctx, NULL, NULL, output);
     for (unsigned int i = 0; i < fmt_ctx->nb_streams; i++) {
         AVStream *in_stream = fmt_ctx->streams[i];
@@ -160,6 +160,7 @@ void write_metadata(char *filename, char *toWrite)
 
     remove(filename);
     rename(output, filename);
+    log2file("write_metadata: successfully added metadata to file...");
 }
 
 
@@ -383,9 +384,10 @@ int get_undownloaded_videos()
     char url[64];
     strcpy(url, base_url);
     int i = 1;
+    log2file("get_undownloaded_videos: fetching most recent videos...");
     while (i < 9999)
     {
-        snprintf(tmp, sizeof(tmp), "yt-dlp --cookies ./cooking.txt --flat-playlist \"https://www.youtube.com/@KarmineCorpVOD/videos\" --print \"%%(id)s\" --playlist-end %d > recentVids.txt", i);
+        snprintf(tmp, sizeof(tmp), "yt-dlp --flat-playlist \"https://www.youtube.com/@KarmineCorpVOD/videos\" --print \"%%(id)s\" --playlist-end %d > recentVids.txt", i);
         system(tmp);
 
         FILE *tmpVids = fopen("recentVids.txt", "r");
@@ -398,7 +400,7 @@ int get_undownloaded_videos()
         {
             if (i == 1)
                 return 0;
-            snprintf(tmp, sizeof(tmp), "yt-dlp --cookies ./cooking.txt --flat-playlist \"https://www.youtube.com/@KarmineCorpVOD/videos\" --print \"%%(id)s\" --playlist-end %d > recentVids.txt", i - 1);
+            snprintf(tmp, sizeof(tmp), "yt-dlp --flat-playlist \"https://www.youtube.com/@KarmineCorpVOD/videos\" --print \"%%(id)s\" --playlist-end %d > recentVids.txt", i - 1);
             system(tmp);
             return i-1;
         }
@@ -421,14 +423,17 @@ void *download_videos(void* bool)
     {
         snprintf(tmp, sizeof(tmp), "Downloading %s...", videos[i]);
         log2file(tmp);
-        snprintf(tmp, sizeof(tmp), "yt-dlp --cookies ./cooking.txt -f 299 %s", videos[i]);
+        snprintf(tmp, sizeof(tmp), "yt-dlp -f 299+140 %s", videos[i]);
         system(tmp);
 
-        snprintf(tmp, sizeof(tmp), "yt-dlp --cookies ./cooking.txt -f 299 --print filename %s > %s", videos[i], videos[i]);
+        snprintf(tmp, sizeof(tmp), "yt-dlp -f 299+140 --print filename %s > %s", videos[i], videos[i]);
         system(tmp);
+        snprintf(tmp, sizeof(tmp), "Successfully downloaded %s", videos[i]);
+        log2file(tmp);
     
         FILE *fichier = fopen(videos[i], "r");
         fgets(tmp, sizeof(tmp), fichier);
+        fclose(fichier);
         char *oldFilename = malloc(sizeof(char *) * ((strlen(tmp) + 1)));
         strcpy(oldFilename, tmp);
         oldFilename[strlen(oldFilename) - 1] = '\0';
@@ -440,7 +445,6 @@ void *download_videos(void* bool)
         strcpy(fullLink, "https://www.youtube.com/watch?v=");
         strcat(fullLink, videos[i]);
 
-        fclose(fichier);
         write_metadata(tmp, fullLink);
         char moov[512];
         snprintf(moov, sizeof(moov), "mv \"%s\" %s", tmp, LOCAL_PATH);
@@ -634,6 +638,20 @@ void raid(char *access, char *fromId, char *toId)
 }
 
 
+void *launch_placeholder(void *var)
+{
+    int *fifo_fd = (int *)var;
+    char *cmdFIFO = "ffmpeg -re -i placeholder.mp4 -c copy -f mpegts -";
+    FILE *ffmpeg = popen(cmdFIFO, "r");
+    char buffer[4096];
+    size_t bytesRead;
+    while ((bytesRead = fread(buffer, 1, sizeof(buffer), ffmpeg)) > 0) {
+        write(*fifo_fd, buffer, bytesRead);
+    }
+    pclose(ffmpeg);
+    return NULL;
+}
+
 
 
 int main(void) {
@@ -647,7 +665,7 @@ restart:
     WORDLIST[0] = (char *[]){"kcx", NULL};
     WORDLIST[1] = (char *[]){"rocket league", "buts", "flip", "spin", "rlcs", "exotiik", "zen", "rl ", " rl", "moist esport", "complexity gaming", NULL};
     WORDLIST[2] = (char *[]){"tft", "canbizz", NULL};
-    WORDLIST[3] = (char *[]){"valorant", "vct", "vcl", "redbullhomeground", "game changers", "karmine corp gc", "joueuses", "female", "nelo", "filles", "ninou", "ze1sh", "féminine", "shin", "matriix", NULL};
+    WORDLIST[3] = (char *[]){"valorant", "vct", "vcl", "vctemea", "redbullhomeground", "game changers", "karmine corp gc", "joueuses", "female", "nelo", "filles", "ninou", "ze1sh", "féminine", "shin", "matriix", NULL};
     WORDLIST[4] = (char *[]){"lol", "league of legends", "div2lol", "emeamasters", "emea masters", "redbull league of its own", "lfl", "lec", "lck", "eu masters", "academy", "karmine corp blue", "movistar riders", "aegis", "bk rog", "eumasters", "ldlc", "vitality bee", "kcb", "hantera", "t1", "faker", "vitality.bee", "cdf", "coupe de france", "botlane", "gold", "eum", "caliste", "saken", NULL};
     WORDLIST[5] = (char *[]){"trackmania", "otaaaq", "bren", NULL};
     WORDLIST[6] = (char *[]){"kurama", NULL};
@@ -676,11 +694,11 @@ restart:
     pthread_create(&ffmpegThreadId, NULL, cmdRunInThread, (void *)ffmpegCmd);
 
     int fifo_fd = open("video_fifo", O_WRONLY);
-    //int isDownloaded = 0;
+
+    system("pip install yt-dlp -U --break-system-packages");
+    int isDownloaded = 0;
 
     while ((long)time(NULL) - timestart < 154000) {
-
-        /*
         if (get_undownloaded_videos())
         {
             pthread_t downloaderThr;
@@ -691,16 +709,13 @@ restart:
             isDownloaded = 0;
             playlist = getAllFiles();
         }
-        */
         snprintf(tmp, sizeof(tmp), "Now playing %s", video);
         log2file(tmp);
         update_stream_info(get_streamer_id(tokensInfos[0], CHANNEL_NAME), tokensInfos[0], CATEGORY_IDS[getGame(video, WORDLIST)], video);
         
         char cmdFIFO[256];
-        if (video != NULL)
-            snprintf(cmdFIFO, sizeof(cmdFIFO), "ffmpeg -re -i \"%s%s\" -c copy -f mpegts -", LOCAL_PATH, video);
-        else 
-            snprintf(cmdFIFO, sizeof(cmdFIFO), "ffmpeg -re -i placeholder.mp4 -c copy -f mpegts -");
+        
+        snprintf(cmdFIFO, sizeof(cmdFIFO), "ffmpeg -re -i \"%s%s\" -c copy -f mpegts -", LOCAL_PATH, video); 
 
         while (video == nextVideo)
             nextVideo = playlist[chooseVideo(size_of_double_array(playlist))];
@@ -712,6 +727,10 @@ restart:
             write(fifo_fd, buffer, bytesRead);
         }
         pclose(ffmpeg);
+
+        pthread_t placeHolderThrId;
+        pthread_create(&placeHolderThrId, NULL, launch_placeholder, (void *)&fifo_fd);
+
         video = nextVideo;
 
         if (atol(tokensInfos[2]) >= (long)time(NULL) + 60)
@@ -757,6 +776,7 @@ restart:
         fgets(tmp, sizeof(tmp), fichier);
         fgets(tmp, sizeof(tmp), fichier);
         long timeleft = convert_to_timestamp(tmp);
+        pthread_join(placeHolderThrId, NULL);
 
         if (timeleft - (long)time(NULL) <= (long)get_video_duration(video) + 60)     // if next match starts before next video ends (with one more minute)
         {
@@ -772,7 +792,7 @@ restart:
             raid(tokensInfos[0], get_streamer_id(tokensInfos[0], CHANNEL_NAME), get_streamer_id(tokensInfos[0], streamer));                                                 // raid streamer
             sleep(5);
             snprintf(tmp, sizeof(tmp), "Attempted to raid %s, closing stream...", streamer);
-            log2file(tmp);                                                  // close stream
+            log2file(tmp);
             log2file("Attempting to close stream...");
             system("echo q > ./video_fifo");
 
@@ -789,11 +809,10 @@ restart:
             timeleft = convert_to_timestamp(next);
             close(fifo_fd);
             if (timeleft - (long)time(NULL) < (long)get_video_duration(video))  
-                                                    goto wait_again;       // if next match starts in less than an hour, wait again
+                                                    goto wait_again;       // if next match starts in less time than next video duration, wait again
             else                                    goto restart;          // else, restart the stream
         }
     }
-
     log2file("Twitch limit of 48h is almost reached, resetting stream...");
     close(fifo_fd);
     sleep(5);
