@@ -9,10 +9,16 @@
 #include <fcntl.h>
 #include <cjson/cJSON.h>
 #include <dirent.h>
+#include <ctype.h>
 #include <libavformat/avformat.h>
 
 #define STREAM_KEY "live_1219233412_x9qHLfK4nDukOO8SFaiRNjqivyFuGh"
 #define LOCAL_PATH "videos/"
+#define CHANNEL_NAME "Kc_Replays"
+#define BOT_ID "kjnngccbj9fcde0r6jc3kv6jyzofqh"
+#define BOT_SECRET "ee4iflzar1zoeafxlyacxc2fk4cnwx"
+#define DEFAULT_ACCESS_TOKEN "84ohke01lr520phb1ntcxez4kl6gl4"
+#define DEFAULT_REFRESH_TOKEN "svs3ozdcp34txn80ons3iztukfj1uitembkzobnn6xfoyrbei0"
 #define SEED 0xb00b5
 
 
@@ -28,6 +34,38 @@ void log2file(char *toWrite)
     FILE *fichier = fopen("console.log", "a");
     fprintf(fichier, "[%s] %s\n", timeString, toWrite);
     fclose(fichier);
+}
+
+
+int getGame(char *title, char ***wordlist)
+{
+    int i = 0;
+    int j = 0;
+    char *isFound;
+    char titleLowered[strlen(title) + 1];
+    strcpy(titleLowered, title);
+    for (long unsigned int i = 0; i < strlen(titleLowered); i++) {
+        titleLowered[i] = tolower(titleLowered[i]);
+    }
+    while (wordlist[i])
+    {
+        while(wordlist[i][j])
+        {
+            isFound = strstr(titleLowered, wordlist[i][j]);
+            if (isFound)
+            {
+                char tmp[128];
+                snprintf(tmp, sizeof(tmp), "found game: %s in title %s", wordlist[i][0], title);
+                log2file(tmp);
+                return i;
+            }
+                
+            j++;
+        }
+        j = 0;
+        i++;
+    }
+    return 0;
 }
 
 
@@ -377,6 +415,7 @@ int get_undownloaded_videos()
 void *download_videos(void* bool)
 {
     char **videos = file_lines("recentVids.txt");
+    remove("recentVids.txt");
     char tmp[256];
     for (int i = size_of_double_array(videos) - 1; i >= 0; i--)
     {
@@ -417,16 +456,211 @@ void *download_videos(void* bool)
 }
 
 
-int main(void) {
-    restart:
-    setlocale(LC_ALL, "fr_FR.UTF-8");
+void revoke_access_token(char *access)
+{
+    char tmp[
+        strlen("curl -X POST 'https://id.twitch.tv/oauth2/revoke' -H 'Content-Type: application/x-www-form-urlencoded' -d 'client_id=&token='") +
+        strlen(BOT_ID) +
+        strlen(access)];
 
+    snprintf(tmp, sizeof(tmp), "curl -X POST 'https://id.twitch.tv/oauth2/revoke' "
+    "-H 'Content-Type: application/x-www-form-urlencoded' -d 'client_id=%s&token=%s'", BOT_ID, access);
+    system(tmp);
+
+    snprintf(tmp, sizeof(tmp), "Revoked token %s", access);
+    log2file(tmp);
+}
+
+
+char **refresh_access_token(char *refresh_token)
+{
+    char tmp[16384];
+    snprintf(tmp, sizeof(tmp), 
+    "curl -X POST https://id.twitch.tv/oauth2/token -H 'Content-Type: application/x-www-form-urlencoded' " 
+    "-d 'grant_type=refresh_token&refresh_token=%s&client_id=%s&client_secret=%s' -o response.json", refresh_token, BOT_ID, BOT_SECRET);
+    system(tmp);
+
+
+    FILE *fichier = fopen("response.json", "r");
+    fread(tmp, 1, sizeof(tmp), fichier); 
+
+
+    cJSON *json = cJSON_Parse(tmp);
+    if (json == NULL) { 
+        const char *error_ptr = cJSON_GetErrorPtr(); 
+        if (error_ptr != NULL)
+            log2file((char *)error_ptr); 
+        
+        fclose(fichier);
+        cJSON_Delete(json); 
+        return NULL; 
+    }
+    cJSON *error = cJSON_GetObjectItemCaseSensitive(json, "error");
+    if (error)
+    {
+        snprintf(tmp, sizeof(tmp), "request failed with code %d", error->valueint);
+        log2file(tmp);
+        return 0;
+    }
+    cJSON *access = cJSON_GetObjectItemCaseSensitive(json, "access_token");
+    cJSON *expire = cJSON_GetObjectItemCaseSensitive(json, "expires_in");
+    cJSON *refresh = cJSON_GetObjectItemCaseSensitive(json, "refresh_token");
+
+    
+    char **buffer = malloc(4 * sizeof(char*));
+    for (int i =0 ; i < 4; ++i)
+        buffer[i] = malloc(64 * sizeof(char));
+    
+
+    strcpy(buffer[0], access->valuestring);
+    strcpy(buffer[1], refresh->valuestring);
+    sprintf(buffer[2], "%d", expire->valueint);
+    buffer[3] = NULL;
+    char **toReturn = buffer;
+
+    fclose(fichier);
+    remove("response.json");
+    cJSON_Delete(json);
+    return toReturn;
+}
+
+
+char get_stream_info(char *access)
+{
+    char tmp[1024];
+    snprintf(tmp, sizeof(tmp), "curl -X GET 'https://api.twitch.tv/helix/streams?user_login=%s' "
+    "-H 'Authorization: Bearer %s' -H 'Client-id: %s' -o response.json", CHANNEL_NAME, access, BOT_ID);
+    system(tmp);
+
+    FILE *fichier = fopen("response.json", "r");
+    fread(tmp, 1, sizeof(tmp), fichier);
+
+    cJSON *json = cJSON_Parse(tmp);
+    if (json == NULL) { 
+        const char *error_ptr = cJSON_GetErrorPtr(); 
+        if (error_ptr != NULL) { 
+            log2file((char *)error_ptr); 
+            return -1;
+        } 
+        cJSON_Delete(json); 
+        return -1; 
+    }
+    cJSON *error = cJSON_GetObjectItemCaseSensitive(json, "error");
+    if (error)
+    {
+        snprintf(tmp, sizeof(tmp), "Request failed: %s", error->valuestring);
+        log2file(tmp);
+        cJSON_Delete(json);
+        return 0;
+    }
+        
+
+    cJSON *data = cJSON_GetObjectItemCaseSensitive(json, "data");
+    cJSON *item = cJSON_GetArrayItem(data, 0);
+
+    fclose(fichier);
+    remove("response.json");
+    fichier = fopen("mntr.data", "w");
+    char *isOnline = "offline";
+    cJSON *vwCount = cJSON_GetObjectItemCaseSensitive(item, "viewer_count");
+    if (vwCount)
+        isOnline = "online";
+
+    char toReturn = vwCount->valueint - 1;
+    snprintf(tmp, sizeof(tmp), "%s\n%d", isOnline, toReturn);
+    fputs(tmp, fichier);
+    fclose(fichier);
+    cJSON_Delete(json);
+    return 1;
+}
+
+
+void update_stream_info(char *streamerId, char *access, int gameId, char *title)
+{
+    char tmp[1024];
+    char titleRediff[strlen(title) + 12];
+    strcpy(titleRediff, title);
+    titleRediff[strlen(title) - 4] = '\0';
+    strcat(titleRediff, " - [REDIFFUSION]");
+    snprintf(tmp, sizeof(tmp), "curl -X PATCH 'https://api.twitch.tv/helix/channels?broadcaster_id=%s' "
+    "-H 'Authorization: Bearer %s' -H 'Client-Id: %s' -H 'Content-Type: application/json' "
+    "--data-raw '{\"game_id\":\"%d\", \"title\":\"%s\", \"broadcaster_language\":\"fr\",  \"tags\":[\"247Stream\", \"botstream\", \"Français\", \"KarmineCorp\"]}'", 
+    streamerId, access, BOT_ID, gameId, titleRediff);
+    system(tmp);
+
+    snprintf(tmp, sizeof(tmp), "updated stream infos to game_id: %d and title %s", gameId, titleRediff);
+    log2file(tmp);
+}
+
+
+char *get_streamer_id(char *access, char *streamer_login)
+{
+    char tmp[1024];
+    snprintf(tmp, sizeof(tmp), "curl -X GET 'https://api.twitch.tv/helix/users?login=%s' "
+    "-H 'Authorization: Bearer %s' -H 'Client-Id: %s' -o response.json", streamer_login, access, BOT_ID);
+    system(tmp);
+
+    FILE *fichier = fopen("response.json", "r");
+    fread(tmp, 1, sizeof(tmp), fichier);
+
+    cJSON *json = cJSON_Parse(tmp);
+    cJSON *error = cJSON_GetObjectItemCaseSensitive(json, "error");
+    if (error)
+    {
+        printf("request failed : %s\n", error->valuestring);
+        return NULL;
+    }
+    cJSON *data = cJSON_GetObjectItemCaseSensitive(json, "data");
+    cJSON *item = cJSON_GetArrayItem(data, 0);
+
+    fclose(fichier);
+    cJSON *id = cJSON_GetObjectItemCaseSensitive(item, "id");
+    if(id == NULL)
+        return NULL;
+    char *toReturn = malloc(sizeof(id->valuestring));
+    strcpy(toReturn, id->valuestring);
+    remove("response.json");
+    cJSON_Delete(json);
+    return toReturn;
+}
+
+
+void raid(char *access, char *fromId, char *toId)
+{
+    char tmp[512];
+    snprintf(tmp, sizeof(tmp), "curl -X POST 'https://api.twitch.tv/helix/raids?from_broadcaster_id=%s&to_broadcaster_id=%s' "
+        "-H 'Authorization: Bearer %s' -H 'Client-Id: %s'", fromId, toId, access, BOT_ID);
+    system(tmp);
+}
+
+
+
+
+int main(void) {
+    setlocale(LC_ALL, "fr_FR.UTF-8");
+    char **tokensInfos = refresh_access_token(DEFAULT_REFRESH_TOKEN);
+    long longTmp = atol(tokensInfos[2]);
+    sprintf(tokensInfos[2], "%ld", (long)time(NULL) + longTmp);
+restart:
+
+    char ***WORDLIST = malloc(sizeof(char **) * 9);
+    WORDLIST[0] = (char *[]){"kcx", NULL};
+    WORDLIST[1] = (char *[]){"rocket league", "buts", "flip", "spin", "rlcs", "exotiik", "zen", "rl ", " rl", "moist esport", "complexity gaming", NULL};
+    WORDLIST[2] = (char *[]){"tft", "canbizz", NULL};
+    WORDLIST[3] = (char *[]){"valorant", "vct", "vcl", "redbullhomeground", "game changers", "karmine corp gc", "joueuses", "female", "nelo", "filles", "ninou", "ze1sh", "féminine", "shin", "matriix", NULL};
+    WORDLIST[4] = (char *[]){"lol", "league of legends", "div2lol", "emeamasters", "emea masters", "redbull league of its own", "lfl", "lec", "lck", "eu masters", "academy", "karmine corp blue", "movistar riders", "aegis", "bk rog", "eumasters", "ldlc", "vitality bee", "kcb", "hantera", "t1", "faker", "vitality.bee", "cdf", "coupe de france", "botlane", "gold", "eum", "caliste", "saken", NULL};
+    WORDLIST[5] = (char *[]){"trackmania", "otaaaq", "bren", NULL};
+    WORDLIST[6] = (char *[]){"kurama", NULL};
+    WORDLIST[7] = (char *[]){"fncs", NULL};
+    WORDLIST[8] = NULL;
+    const int CATEGORY_IDS[] = {509663, 30921, 513143, 516575, 21779, 687129551, 504461, 33214};
     char **playlist = getAllFiles();                                             
     char *video = playlist[chooseVideo(size_of_double_array(playlist))];
     unlink("video_fifo");
     mkfifo("video_fifo", 0666);
 
-    char ffmpegCmd[256];
+
+    char ffmpegCmd[180];
     snprintf(ffmpegCmd, sizeof(ffmpegCmd),
         "ffmpeg -loglevel debug -re -i video_fifo "
         "-c:v copy -bufsize 18000k "
@@ -445,6 +679,7 @@ int main(void) {
     //int isDownloaded = 0;
 
     while ((long)time(NULL) - timestart < 154000) {
+
         /*
         if (get_undownloaded_videos())
         {
@@ -459,38 +694,9 @@ int main(void) {
         */
         snprintf(tmp, sizeof(tmp), "Now playing %s", video);
         log2file(tmp);
-
-        /*------------------------------------------HANDLE WEB MONITORING------------------------------------------*/
-        system("python3 handle_twitchAPI.py -ov");                                                                  //
-        FILE *monitoring = fopen("mntrdata.tmp", "r");                                                              //
-        char isOnline[9];                                                                                           //
-        char viewerCount[6];                                                                                        //
-                                                                                                                    //
-        fgets(isOnline, sizeof(isOnline), monitoring);                                                              //
-        fgets(viewerCount, sizeof(viewerCount), monitoring);                                                        //
-        isOnline[strlen(isOnline) - 1] = '\0';                                                                      //
-        fclose(monitoring);                                                                                         //
-        remove("mntrdata.tmp");                                                                                     //
-                                                                                                                    //
-        monitoring = fopen("/var/www/html/monitoring.json", "w");                                                   //
-        cJSON *json = cJSON_CreateObject();                                                                         //
-                                                                                                                    //
-        cJSON_AddStringToObject(json, "status", isOnline);                                                          //
-        cJSON_AddStringToObject(json, "videoTitle", video);                                                         //
-        cJSON_AddNumberToObject(json, "videoDuration", (double)get_video_duration(video));                          //
-        cJSON_AddNumberToObject(json, "videoStartTime", (double)time(NULL));                                        //
-        cJSON_AddNumberToObject(json, "streamStartTime", (double)timestart);                                        //
-        cJSON_AddNumberToObject(json, "viewers", (double)atoi(viewerCount));                                        //
-                                                                                                                    //
-        char *json_str = cJSON_Print(json);                                                                         //
-        fputs(json_str, monitoring);                                                                                //
-        fclose(monitoring);                                                                                         //
-        cJSON_free(json_str);                                                                                       //
-        cJSON_Delete(json);                                                                                         //
-                                                                                                                    //
-        /*------------------------------------------HANDLE WEB MONITORING------------------------------------------*/
-
-        char cmdFIFO[1024];
+        update_stream_info(get_streamer_id(tokensInfos[0], CHANNEL_NAME), tokensInfos[0], CATEGORY_IDS[getGame(video, WORDLIST)], video);
+        
+        char cmdFIFO[256];
         if (video != NULL)
             snprintf(cmdFIFO, sizeof(cmdFIFO), "ffmpeg -re -i \"%s%s\" -c copy -f mpegts -", LOCAL_PATH, video);
         else 
@@ -498,8 +704,6 @@ int main(void) {
 
         while (video == nextVideo)
             nextVideo = playlist[chooseVideo(size_of_double_array(playlist))];
-        snprintf(tmp, sizeof(tmp), "python3 handle_twitchAPI.py -u \"%s\" -re", video);
-        system(tmp);
 
         FILE *ffmpeg = popen(cmdFIFO, "r");
         char buffer[4096];
@@ -508,9 +712,44 @@ int main(void) {
             write(fifo_fd, buffer, bytesRead);
         }
         pclose(ffmpeg);
-
-        
         video = nextVideo;
+
+        if (atol(tokensInfos[2]) >= (long)time(NULL) + 60)
+        {
+            revoke_access_token(tokensInfos[0]);
+            tokensInfos = refresh_access_token(tokensInfos[1]);
+            longTmp = atol(tokensInfos[2]);
+            sprintf(tokensInfos[2], "%ld", (long)time(NULL) + longTmp);
+        }
+        get_stream_info(tokensInfos[0]);
+        FILE *streamInfos = fopen("mntr.data", "r");
+        char isOnline[8];
+        char vwCount[6];
+        fgets(isOnline, sizeof(isOnline), streamInfos);
+            isOnline[strlen(isOnline) - 1] = '\0';
+        fgets(tmp, sizeof(tmp), streamInfos);
+        fgets(vwCount, sizeof(vwCount), streamInfos);
+        fclose(streamInfos);
+        remove("mntr.data");
+        /*------------------------------------------HANDLE WEB MONITORING------------------------------------------*/ 
+                                                                                                                    //
+        streamInfos = fopen("/var/www/html/monitoring.json", "w");                                                  //
+        cJSON *json = cJSON_CreateObject();                                                                         //
+                                                                                                                    //
+        cJSON_AddStringToObject(json, "status", isOnline);                                                          //
+        cJSON_AddStringToObject(json, "videoTitle", video);                                                         //
+        cJSON_AddNumberToObject(json, "videoDuration", (double)get_video_duration(video));                          //
+        cJSON_AddNumberToObject(json, "videoStartTime", (double)time(NULL));                                        //
+        cJSON_AddNumberToObject(json, "streamStartTime", (double)timestart);                                        //
+        cJSON_AddNumberToObject(json, "viewers", (double)atoi(vwCount));                                            //
+                                                                                                                    //
+        char *json_str = cJSON_Print(json);                                                                         //
+        fputs(json_str, streamInfos);                                                                               //
+        fclose(streamInfos);                                                                                        //
+        cJSON_free(json_str);                                                                                       //
+        cJSON_Delete(json);                                                                                         //
+                                                                                                                    //
+        /*------------------------------------------HANDLE WEB MONITORING------------------------------------------*/
 
         handleAPI();
         FILE *fichier = fopen("next.data", "r");
@@ -530,13 +769,18 @@ int main(void) {
             timeleft = convert_to_timestamp(ending);
             fgets(streamer, sizeof(streamer), fichier);                     // gets streamer to raid
             fclose(fichier);                                                // end of file is reached, closing file
-            snprintf(tmp, sizeof(tmp), "python3 handle_twitchAPI.py -ra %s", streamer);       //stream isn't stopped yet
-            system(tmp);                                                    // raid streamer
+            raid(tokensInfos[0], get_streamer_id(tokensInfos[0], CHANNEL_NAME), get_streamer_id(tokensInfos[0], streamer));                                                 // raid streamer
             sleep(5);
-            log2file("Attempted to raid streamer, closing stream...");      // close stream
+            snprintf(tmp, sizeof(tmp), "Attempted to raid %s, closing stream...", streamer);
+            log2file(tmp);                                                  // close stream
+            log2file("Attempting to close stream...");
             system("echo q > ./video_fifo");
 
             sleep(timeleft - (long)time(NULL));                             // sleep until match ending
+            snprintf(tmp, sizeof(tmp), "Waiting %02ld:%02ld:%02ld until next match, estimated next loop starts in %02ld:%02ld:%02ld...", 
+                (timeleft - (long)time(NULL))/3600, ((timeleft - (long)time(NULL))/60)%60, (timeleft - (long)time(NULL))%60, 
+                timeleft/3600, (timeleft/60)%60, timeleft%60);
+            log2file(tmp);
             handleAPI();                                                    // refresh api data
             fichier = fopen("next.data", "r");
             fgets(tmp, sizeof(tmp), fichier);
@@ -552,7 +796,8 @@ int main(void) {
 
     log2file("Twitch limit of 48h is almost reached, resetting stream...");
     close(fifo_fd);
-    goto restart;
+    sleep(5);
+goto restart;
 
     return 0;
 }
