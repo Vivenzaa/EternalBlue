@@ -18,7 +18,16 @@
 #define BOT_ID "kjnngccbj9fcde0r6jc3kv6jyzofqh"
 #define BOT_SECRET "ee4iflzar1zoeafxlyacxc2fk4cnwx"
 #define DEFAULT_REFRESH_TOKEN "svs3ozdcp34txn80ons3iztukfj1uitembkzobnn6xfoyrbei0"
+#define GOOGLE_API_KEY "AIzaSyA_mlDBPL3nTGUiIyonwF6HCnKeHnWdanM"
 #define SEED 0xb00b5
+
+
+typedef struct ffdata
+{
+    char *videopath;
+    int *fifo;
+}ffdata;
+
 
 
 void log2file(char *toWrite)
@@ -30,9 +39,43 @@ void log2file(char *toWrite)
     time_info = localtime(&current_time);
     strftime(timeString, sizeof(timeString), "%H:%M:%S", time_info);
 
-    FILE *fichier = fopen("console.log", "a");
+    FILE *fichier = fopen("consolelog.out", "a");
     fprintf(fichier, "[%s] %s\n", timeString, toWrite);
     fclose(fichier);
+}
+
+
+char *curl_filename(char *ptr)
+{
+    int apNb = 0;
+    for(unsigned long i = 0; i < strlen(ptr); i++)
+    {
+        if (ptr[i] == '\'')
+            apNb++;
+    }
+
+    if (apNb)
+    {
+        int j = 0;
+        char tmp[strlen(ptr) + (apNb * 3) + 1];
+        for(unsigned long i = 0; i < strlen(ptr); i++)
+        {
+            if (ptr[i] == '\'')
+            {
+                tmp[i + j] = '\'';
+                tmp[i + j + 1] = '\\';
+                tmp[i + j + 2] = '\'';
+                j += 3;
+            }
+            tmp[i + j] = ptr[i];
+        }
+        tmp[strlen(ptr) + apNb] = '\0';
+        char *aaa = malloc(strlen(tmp) + 1);
+        strcpy(aaa, tmp);
+        printf("%s\n", aaa);
+        return aaa;
+    }
+    return ptr;
 }
 
 
@@ -64,6 +107,9 @@ int getGame(char *title, char ***wordlist)
         j = 0;
         i++;
     }
+    char tmp[256];
+    snprintf(tmp, sizeof(tmp), "Couln't find game for title %s, defaulting to \"Special Event\"...", title);        // try getting game from YT videos's data
+    log2file(tmp);
     return 0;
 }
 
@@ -173,7 +219,6 @@ char **getAllFiles()
     int count = 0;
 
     while ((de = readdir(dr)) != NULL) {
-        //printf("de->d_name = %s, %d\n", de->d_name, (int)strlen(de->d_name));
         if (strlen(de->d_name) <= 3)     continue;
         char *line = malloc(strlen(de->d_name) + 1);
         if (!line) {
@@ -243,18 +288,17 @@ char **file_lines(char *filename) {
 }
 
 
-unsigned short chooseVideo(unsigned short x)       // x is the len of file list, NOT the last index of filelist
+unsigned int chooseVideo(unsigned int x)       // x is the len of file list, NOT the last index of filelist
 {
-    unsigned short tmp = (unsigned int)time(NULL) * SEED * 0x5f3759df;   // what the fuck?
+    unsigned int tmp = (unsigned int)time(NULL) * SEED * 0x5f3759df;   // what the fuck?
     return tmp % x;   
 }
 
 
 unsigned int size_of_double_array(char **array) {
     unsigned int size = 0;
-    while (array[size] != NULL) {
+    while (array[size] != NULL)
         size++;
-    }
     return size;
 }
 
@@ -287,6 +331,30 @@ void *cmdRunInThread(void *str)
     log2file("launching main ffmpeg");
     const char *cmd = (const char *)str;
     system(cmd);
+    log2file("main ffmpeg has ended");
+    return NULL;
+}
+
+
+void *ffwrite(void *data)
+{
+    ffdata *pathfifo = (ffdata *)data;
+    int *fifo_fd = pathfifo->fifo;
+    
+    char cmdFIFO[strlen("ffmpeg -re -i \"\" -c copy -f mpegts -") + 
+                 strlen(LOCAL_PATH) +
+                 strlen(pathfifo->videopath) + 1];
+        
+    snprintf(cmdFIFO, sizeof(cmdFIFO), "ffmpeg -re -i \"%s%s\" -c copy -f mpegts -", LOCAL_PATH, pathfifo->videopath); 
+
+    FILE *ffmpeg = popen(cmdFIFO, "r");
+    char buffer[4096];
+    size_t bytesRead;
+    while ((bytesRead = fread(buffer, 1, sizeof(buffer), ffmpeg)) > 0) {
+        write(*fifo_fd, buffer, bytesRead);
+    }
+    pclose(ffmpeg);
+
     return NULL;
 }
 
@@ -294,7 +362,7 @@ void *cmdRunInThread(void *str)
 void *handleAPI()
 {
     system("curl https://api2.kametotv.fr/karmine/events -o api.json");
-
+    log2file("Fetching api data of La Prestigieuse...");
     FILE *fichier = fopen("api.json", "r");
     char tmp[16384];
     fread(tmp, 1, sizeof(tmp), fichier); 
@@ -308,23 +376,116 @@ void *handleAPI()
         return NULL; 
     }
     cJSON *upcomming = cJSON_GetArrayItem(json, 0);
-
-    cJSON *opponent = cJSON_GetObjectItemCaseSensitive(upcomming, "team_name_exterieur");
-    cJSON *game     = cJSON_GetObjectItemCaseSensitive(upcomming, "competition_name");
     cJSON *start    = cJSON_GetObjectItemCaseSensitive(upcomming, "start");
     cJSON *end      = cJSON_GetObjectItemCaseSensitive(upcomming, "end");
     cJSON *channel  = cJSON_GetObjectItemCaseSensitive(upcomming, "streamLink");
     
     fichier = fopen("next.data", "w");
-    fprintf(fichier, "%s\n%s\n%s\n%s\n%s\n", opponent->valuestring, game->valuestring, start->valuestring, end->valuestring, channel->valuestring);
+    fprintf(fichier, "%s\n%s\n%s\n", start->valuestring, end->valuestring, channel->valuestring);
     fclose(fichier);
     cJSON_Delete(json);
-
     return NULL;
 }
 
 
-int get_video_duration(char *video)
+char YTAPI_Get_Recent_Videos(unsigned int max)          // Creates file of form yt_id;yt_title sorted by most recent video
+{
+    char tmp[2048*max];
+    snprintf(tmp, sizeof(tmp), "curl -X GET \"https://www.googleapis.com/youtube/v3/search?"
+        "part=snippet&channelId=UCApmTE4So9oX7sPkDGgSpFQ&maxResults=%d&order=date&type=video&key=%s\" > response.json", 
+        max, GOOGLE_API_KEY);
+    system(tmp);
+
+    FILE *fichier = fopen("response.json", "r");
+    fread(tmp, 1, sizeof(tmp), fichier);
+    fclose(fichier);
+    remove("response.json");
+
+
+    cJSON *json = cJSON_Parse(tmp);
+    if (json == NULL) { 
+        const char *error_ptr = cJSON_GetErrorPtr(); 
+        if (error_ptr != NULL) { 
+            log2file((char *)error_ptr); 
+            return -1;
+        } 
+        cJSON_Delete(json); 
+        return -1; 
+    }
+    cJSON *error = cJSON_GetObjectItemCaseSensitive(json, "error");
+    if (error)
+    {
+        snprintf(tmp, sizeof(tmp), "YTAPI_Get_Recent_Videos: Request failed: %s", error->valuestring);
+        log2file(tmp);
+        cJSON_Delete(json);
+        return 0;
+    }
+
+    cJSON *data = cJSON_GetObjectItemCaseSensitive(json, "items");
+    for(unsigned int i = 0; i < max; i++)
+    {
+        cJSON *item = cJSON_GetArrayItem(data, i);  
+        cJSON *id = cJSON_GetObjectItemCaseSensitive(item, "id");
+        cJSON *videoId = cJSON_GetObjectItemCaseSensitive(id, "videoId");
+
+        fichier = fopen("recentVids", "a");
+        fprintf(fichier, "%s\n", videoId->valuestring);
+        fclose(fichier);
+    }
+    
+    
+    cJSON_Delete(json);
+    return 0;
+}
+
+
+char *YTAPI_Get_Video_Name(char *videoId)
+{
+    char tmp[4096];
+    snprintf(tmp, sizeof(tmp), "curl -X GET \"https://www.googleapis.com/youtube/v3/videos?part=snippet&id=%s&key=%s\" > response.json", 
+        videoId, GOOGLE_API_KEY);
+    system(tmp);
+
+    FILE *fichier = fopen("response.json", "r");
+    fread(tmp, 1, sizeof(tmp), fichier);
+    fclose(fichier);
+    remove("response.json");
+
+
+    cJSON *json = cJSON_Parse(tmp);
+    if (json == NULL) { 
+        const char *error_ptr = cJSON_GetErrorPtr(); 
+        if (error_ptr != NULL) { 
+            log2file((char *)error_ptr); 
+            return NULL;
+        } 
+        cJSON_Delete(json); 
+        return NULL; 
+    }
+    cJSON *error = cJSON_GetObjectItemCaseSensitive(json, "error");
+    if (error)
+    {
+        snprintf(tmp, sizeof(tmp), "YTAPI_Get_Video_Name: Request failed: %s", error->valuestring);
+        log2file(tmp);
+        cJSON_Delete(json);
+        return NULL;
+    }
+
+    cJSON *data =       cJSON_GetObjectItemCaseSensitive(json, "items");
+    cJSON *item =       cJSON_GetArrayItem(data, 0);
+    cJSON *snippet =    cJSON_GetObjectItemCaseSensitive(item, "snippet");
+    cJSON *title =      cJSON_GetObjectItemCaseSensitive(snippet, "title");
+
+    char *toReturn = malloc(sizeof(char *) * strlen(title->valuestring));
+    strcpy(toReturn, title->valuestring);
+
+    cJSON_Delete(json);
+    return toReturn;
+
+}
+
+
+int get_video_duration(char *video)             // returns timestamp of video duration
 {
     char cmd[256];
     snprintf(cmd, sizeof(cmd), "ffprobe -show_entries format=duration \"./%s%s\" > drtn.tmp", LOCAL_PATH, video);
@@ -378,34 +539,30 @@ int get_undownloaded_videos()
             break;
         }
     }
-    char *link = get_metadata(video);
+    char *link = get_metadata(video);       // form : https://www.youtube.com/watch?v=xxxxxxxxxxx
+    link = (link + strlen(link) - 11);      // form : xxxxxxxxxxx
 
-    const char *base_url = "https://www.youtube.com/watch?v=";
-    char url[64];
-    strcpy(url, base_url);
+
     int i = 1;
     log2file("get_undownloaded_videos: fetching most recent videos...");
     while (i < 9999)
     {
-        snprintf(tmp, sizeof(tmp), "yt-dlp --flat-playlist \"https://www.youtube.com/@KarmineCorpVOD/videos\" --print \"%%(id)s\" --playlist-end %d > recentVids.txt", i);
-        system(tmp);
-
-        FILE *tmpVids = fopen("recentVids.txt", "r");
+        YTAPI_Get_Recent_Videos(i);
+        FILE *tmpVids = fopen("recentVids", "r");
         for (int j = 0; j<i; j++)   
             fgets(tmp, sizeof(tmp), tmpVids);
+        fclose(tmpVids);
+        remove("recentVids");
 
-        tmp[strlen(tmp) - 1] = '\0';
-        strcat(url, tmp);
-        if(strcmp(url, link) == 0)
+
+        tmp[11] = '\0';
+        if(strcmp(tmp, link) == 0)
         {
             if (i == 1)
                 return 0;
-            snprintf(tmp, sizeof(tmp), "yt-dlp --flat-playlist \"https://www.youtube.com/@KarmineCorpVOD/videos\" --print \"%%(id)s\" --playlist-end %d > recentVids.txt", i - 1);
-            system(tmp);
+            YTAPI_Get_Recent_Videos(i - 1);
             return i-1;
         }
-        else
-            strcpy(url, base_url);
 
         i++;
     }  
@@ -416,42 +573,45 @@ int get_undownloaded_videos()
 
 void *download_videos(void* bool)
 {
-    char **videos = file_lines("recentVids.txt");
-    remove("recentVids.txt");
+    char **videos = file_lines("recentVids");
+    remove("recentVids");
     char tmp[256];
     for (int i = size_of_double_array(videos) - 1; i >= 0; i--)
     {
         snprintf(tmp, sizeof(tmp), "Downloading %s...", videos[i]);
         log2file(tmp);
-        snprintf(tmp, sizeof(tmp), "yt-dlp -f 299+140 %s", videos[i]);
+
+        snprintf(tmp, sizeof(tmp), "mkdir %s", videos[i]);
         system(tmp);
 
-        snprintf(tmp, sizeof(tmp), "yt-dlp -f 299+140 --print filename %s > %s", videos[i], videos[i]);
+        snprintf(tmp, sizeof(tmp), "yt-dlp --cookies-from-browser firefox -r 5000000 -f 299+140 %s -P ./%s/", videos[i], videos[i]);   // -r 6MB
         system(tmp);
-        snprintf(tmp, sizeof(tmp), "Successfully downloaded %s", videos[i]);
+
+        char *videoTitle = YTAPI_Get_Video_Name(videos[i]);
+        snprintf(tmp, sizeof(tmp), "Successfully downloaded %s : %s", videos[i], videoTitle);
         log2file(tmp);
-    
-        FILE *fichier = fopen(videos[i], "r");
-        fgets(tmp, sizeof(tmp), fichier);
-        fclose(fichier);
-        char *oldFilename = malloc(sizeof(char *) * ((strlen(tmp) + 1)));
-        strcpy(oldFilename, tmp);
-        oldFilename[strlen(oldFilename) - 1] = '\0';
-        tmp[strlen(tmp) - strlen(videos[i]) - 8] = '\0';
-        strcat(tmp, ".mp4");
-        rename(oldFilename, tmp);
 
-        char *fullLink = malloc(strlen("https://www.youtube.com/watch?v=") + strlen(videos[i]) + 3);
+        
+        char videotmp[strlen(videoTitle) + 5];
+        strcpy(videotmp, videoTitle);
+        strcat(videotmp, ".mp4");
+
+        snprintf(tmp, sizeof(tmp), "mv %s/* ./%s", videos[i], videotmp);
+        system(tmp);
+        snprintf(tmp, sizeof(tmp), "rmdir %s", videos[i]);
+        system(tmp);
+
+        char *fullLink = malloc(strlen("https://www.youtube.com/watch?v=") + strlen(videos[i]) + 1);
         strcpy(fullLink, "https://www.youtube.com/watch?v=");
         strcat(fullLink, videos[i]);
 
-        write_metadata(tmp, fullLink);
+        write_metadata(videotmp, fullLink);
         char moov[512];
-        snprintf(moov, sizeof(moov), "mv \"%s\" %s", tmp, LOCAL_PATH);
+        snprintf(moov, sizeof(moov), "mv \"%s\" %s", videotmp, LOCAL_PATH);
         system(moov);
-        remove(videos[i]);
     }
 
+    log2file("Successfully downloaded all recent videos.");
     int *a = (int *)bool;
     *a = 1;
     bool = (void *)a;
@@ -465,7 +625,7 @@ void revoke_access_token(char *access)
     char tmp[
         strlen("curl -X POST 'https://id.twitch.tv/oauth2/revoke' -H 'Content-Type: application/x-www-form-urlencoded' -d 'client_id=&token='") +
         strlen(BOT_ID) +
-        strlen(access)];
+        strlen(access) + 1];
 
     snprintf(tmp, sizeof(tmp), "curl -X POST 'https://id.twitch.tv/oauth2/revoke' "
     "-H 'Content-Type: application/x-www-form-urlencoded' -d 'client_id=%s&token=%s'", BOT_ID, access);
@@ -536,6 +696,7 @@ char get_stream_info(char *access)
     "-H 'Authorization: Bearer %s' -H 'Client-id: %s' -o response.json", CHANNEL_NAME, access, BOT_ID);
     system(tmp);
 
+
     FILE *fichier = fopen("response.json", "r");
     fread(tmp, 1, sizeof(tmp), fichier);
 
@@ -557,8 +718,6 @@ char get_stream_info(char *access)
         cJSON_Delete(json);
         return 0;
     }
-        
-
     cJSON *data = cJSON_GetObjectItemCaseSensitive(json, "data");
     cJSON *item = cJSON_GetArrayItem(data, 0);
 
@@ -569,8 +728,15 @@ char get_stream_info(char *access)
     cJSON *vwCount = cJSON_GetObjectItemCaseSensitive(item, "viewer_count");
     if (vwCount)
         isOnline = "online";
+    else
+    {
+        fputs("offline\n0", fichier);
+        fclose(fichier);
+        cJSON_Delete(json);
+        return 0;
+    }
 
-    char toReturn = vwCount->valueint - 1;
+    int toReturn = vwCount->valueint;
     snprintf(tmp, sizeof(tmp), "%s\n%d", isOnline, toReturn);
     fputs(tmp, fichier);
     fclose(fichier);
@@ -588,12 +754,27 @@ void update_stream_info(char *streamerId, char *access, int gameId, char *title)
     strcat(titleRediff, " - [REDIFFUSION]");
     snprintf(tmp, sizeof(tmp), "curl -X PATCH 'https://api.twitch.tv/helix/channels?broadcaster_id=%s' "
     "-H 'Authorization: Bearer %s' -H 'Client-Id: %s' -H 'Content-Type: application/json' "
-    "--data-raw '{\"game_id\":\"%d\", \"title\":\"%s\", \"broadcaster_language\":\"fr\",  \"tags\":[\"247Stream\", \"botstream\", \"Français\", \"KarmineCorp\"]}'", 
+    "--data-raw '{\"game_id\":\"%d\", \"title\":\"%s\", \"broadcaster_language\":\"fr\",  \"tags\":[\"247Stream\", \"botstream\", \"Français\", \"KarmineCorp\"]}' -o response.json", 
     streamerId, access, BOT_ID, gameId, titleRediff);
     system(tmp);
 
-    snprintf(tmp, sizeof(tmp), "updated stream infos to game_id: %d and title %s", gameId, titleRediff);
-    log2file(tmp);
+    FILE *fichier = fopen("response.json", "r");
+    fread(tmp, 1, sizeof(tmp), fichier);
+    fclose(fichier);
+    remove("response.json");
+    cJSON *json = cJSON_Parse(tmp);
+    cJSON *error = cJSON_GetObjectItemCaseSensitive(json, "error");
+    if (error)
+    {
+        snprintf(tmp, sizeof(tmp), "Request failed to update stream informations: %d: %s", error->valueint, error->valuestring);
+        log2file(tmp);
+    }
+    else
+    {
+        snprintf(tmp, sizeof(tmp), "Updated stream infos to game_id: %d and title %s", gameId, titleRediff);
+        log2file(tmp);
+    }
+    cJSON_Delete(json);
 }
 
 
@@ -629,26 +810,29 @@ char *get_streamer_id(char *access, char *streamer_login)
 }
 
 
-void raid(char *access, char *fromId, char *toId)
+char *raid(char *access, char *fromId, char *toId)
 {
     char tmp[512];
     snprintf(tmp, sizeof(tmp), "curl -X POST 'https://api.twitch.tv/helix/raids?from_broadcaster_id=%s&to_broadcaster_id=%s' "
-        "-H 'Authorization: Bearer %s' -H 'Client-Id: %s'", fromId, toId, access, BOT_ID);
+        "-H 'Authorization: Bearer %s' -H 'Client-Id: %s' -o response.json", fromId, toId, access, BOT_ID);
     system(tmp);
-}
 
+    FILE *fichier = fopen("response.json", "r");
+    fread(tmp, 1, sizeof(tmp), fichier);
+    fclose(fichier);
 
-void *launch_placeholder(void *var)
-{
-    int *fifo_fd = (int *)var;
-    char *cmdFIFO = "ffmpeg -re -i placeholder.mp4 -c copy -f mpegts -";
-    FILE *ffmpeg = popen(cmdFIFO, "r");
-    char buffer[4096];
-    size_t bytesRead;
-    while ((bytesRead = fread(buffer, 1, sizeof(buffer), ffmpeg)) > 0) {
-        write(*fifo_fd, buffer, bytesRead);
+    cJSON *json = cJSON_Parse(tmp);
+    cJSON *error = cJSON_GetObjectItemCaseSensitive(json, "error");
+    if (error)
+    {
+        cJSON *msg = cJSON_GetObjectItemCaseSensitive(json, "message");
+        char *toReturn = malloc(sizeof(msg->valuestring));
+        strcpy(toReturn, msg->valuestring);
+        
+        cJSON_Delete(json);
+        remove("response.json");
+        return toReturn;
     }
-    pclose(ffmpeg);
     return NULL;
 }
 
@@ -663,7 +847,7 @@ restart:
 
     char ***WORDLIST = malloc(sizeof(char **) * 9);
     WORDLIST[0] = (char *[]){"kcx", NULL};
-    WORDLIST[1] = (char *[]){"rocket league", "buts", "flip", "spin", "rlcs", "exotiik", "zen", "rl ", " rl", "moist esport", "complexity gaming", NULL};
+    WORDLIST[1] = (char *[]){"rocket league", "buts", "spacestation", "flip", "spin", "rlcs", "exotiik", "zen", "rl ", " rl", "moist esport", "complexity gaming", NULL};
     WORDLIST[2] = (char *[]){"tft", "canbizz", NULL};
     WORDLIST[3] = (char *[]){"valorant", "vct", "vcl", "vctemea", "redbullhomeground", "game changers", "karmine corp gc", "joueuses", "female", "nelo", "filles", "ninou", "ze1sh", "féminine", "shin", "matriix", NULL};
     WORDLIST[4] = (char *[]){"lol", "league of legends", "div2lol", "emeamasters", "emea masters", "redbull league of its own", "lfl", "lec", "lck", "eu masters", "academy", "karmine corp blue", "movistar riders", "aegis", "bk rog", "eumasters", "ldlc", "vitality bee", "kcb", "hantera", "t1", "faker", "vitality.bee", "cdf", "coupe de france", "botlane", "gold", "eum", "caliste", "saken", NULL};
@@ -681,8 +865,8 @@ restart:
     char ffmpegCmd[180];
     snprintf(ffmpegCmd, sizeof(ffmpegCmd),
         "ffmpeg -loglevel debug -re -i video_fifo "
-        "-c:v copy -bufsize 18000k "
-        "-c:a copy -f flv rtmp://live.twitch.tv/app/%s > ffmpeg.log 2>&1",
+        "-c copy -bufsize 18000k "
+        "-f flv rtmp://live.twitch.tv/app/%s > fflog.out 2>&1",
         STREAM_KEY);
 
     char tmp[256];
@@ -697,49 +881,37 @@ restart:
 
     system("pip install yt-dlp -U --break-system-packages");
     int isDownloaded = 0;
+    if (get_undownloaded_videos())
+    {
+        pthread_t downloaderThr;
+        pthread_create(&downloaderThr, NULL, download_videos, (void *)&isDownloaded);
+    }
+
 
     while ((long)time(NULL) - timestart < 154000) {
-        if (get_undownloaded_videos())
-        {
-            pthread_t downloaderThr;
-            pthread_create(&downloaderThr, NULL, download_videos, (void *)&isDownloaded);
-        }
+        ffdata data = {video, &fifo_fd};
+        pthread_t ffThr;
+        pthread_create(&ffThr, NULL, ffwrite, (void *)&data);
+        update_stream_info(get_streamer_id(tokensInfos[0], CHANNEL_NAME), tokensInfos[0], CATEGORY_IDS[getGame(video, WORDLIST)], curl_filename(video));
         if(isDownloaded)
         {
             isDownloaded = 0;
             playlist = getAllFiles();
         }
-        snprintf(tmp, sizeof(tmp), "Now playing %s", video);
+        int endtime = get_video_duration(video) + (int)time(NULL);
+        snprintf(tmp, sizeof(tmp), "Now playing %s, estimated end time : %02d:%02d:%02d", video, ((endtime + 3600)/3600)%24, (endtime/60)%60, endtime%60);
         log2file(tmp);
-        update_stream_info(get_streamer_id(tokensInfos[0], CHANNEL_NAME), tokensInfos[0], CATEGORY_IDS[getGame(video, WORDLIST)], video);
         
-        char cmdFIFO[256];
-        
-        snprintf(cmdFIFO, sizeof(cmdFIFO), "ffmpeg -re -i \"%s%s\" -c copy -f mpegts -", LOCAL_PATH, video); 
-
-        while (video == nextVideo)
-            nextVideo = playlist[chooseVideo(size_of_double_array(playlist))];
-
-        FILE *ffmpeg = popen(cmdFIFO, "r");
-        char buffer[4096];
-        size_t bytesRead;
-        while ((bytesRead = fread(buffer, 1, sizeof(buffer), ffmpeg)) > 0) {
-            write(fifo_fd, buffer, bytesRead);
-        }
-        pclose(ffmpeg);
-
-        pthread_t placeHolderThrId;
-        pthread_create(&placeHolderThrId, NULL, launch_placeholder, (void *)&fifo_fd);
-
-        video = nextVideo;
 
         if (atol(tokensInfos[2]) >= (long)time(NULL) + 60)
         {
             revoke_access_token(tokensInfos[0]);
             tokensInfos = refresh_access_token(tokensInfos[1]);
+            log2file("refreshed token");
             longTmp = atol(tokensInfos[2]);
             sprintf(tokensInfos[2], "%ld", (long)time(NULL) + longTmp);
         }
+        log2file("getting stream info");
         get_stream_info(tokensInfos[0]);
         FILE *streamInfos = fopen("mntr.data", "r");
         char isOnline[8];
@@ -770,13 +942,15 @@ restart:
                                                                                                                     //
         /*------------------------------------------HANDLE WEB MONITORING------------------------------------------*/
 
+        while (video == nextVideo)
+            nextVideo = playlist[chooseVideo(size_of_double_array(playlist))];
+        video = nextVideo;
+        
         handleAPI();
         FILE *fichier = fopen("next.data", "r");
         fgets(tmp, sizeof(tmp), fichier);
-        fgets(tmp, sizeof(tmp), fichier);
-        fgets(tmp, sizeof(tmp), fichier);
         long timeleft = convert_to_timestamp(tmp);
-        pthread_join(placeHolderThrId, NULL);
+
 
         if (timeleft - (long)time(NULL) <= (long)get_video_duration(video) + 60)     // if next match starts before next video ends (with one more minute)
         {
@@ -788,11 +962,22 @@ restart:
             fgets(ending, sizeof(ending), fichier);                         // gets timestamp of match ending
             timeleft = convert_to_timestamp(ending);
             fgets(streamer, sizeof(streamer), fichier);                     // gets streamer to raid
+                streamer[strlen(streamer) - 1] = '\0';
             fclose(fichier);                                                // end of file is reached, closing file
-            raid(tokensInfos[0], get_streamer_id(tokensInfos[0], CHANNEL_NAME), get_streamer_id(tokensInfos[0], streamer));                                                 // raid streamer
-            sleep(5);
-            snprintf(tmp, sizeof(tmp), "Attempted to raid %s, closing stream...", streamer);
+            snprintf(tmp, sizeof(tmp), "attempting to raid %s...\n", streamer);
             log2file(tmp);
+            char *raidValue = raid(tokensInfos[0], get_streamer_id(tokensInfos[0], CHANNEL_NAME), get_streamer_id(tokensInfos[0], streamer));
+            if(raidValue)
+            {
+                snprintf(tmp, sizeof(tmp), "Failed to raid %s: %s", streamer, raidValue);
+                log2file(tmp);
+            }
+            else
+            {
+                snprintf(tmp, sizeof(tmp), "Successfully raided %s", streamer);
+                log2file(tmp);
+            }
+            sleep(5);
             log2file("Attempting to close stream...");
             system("echo q > ./video_fifo");
 
@@ -803,8 +988,6 @@ restart:
             log2file(tmp);
             handleAPI();                                                    // refresh api data
             fichier = fopen("next.data", "r");
-            fgets(tmp, sizeof(tmp), fichier);
-            fgets(tmp, sizeof(tmp), fichier);
             fgets(next, sizeof(next), fichier);                             // gets timestamp of next match
             timeleft = convert_to_timestamp(next);
             close(fifo_fd);
@@ -812,6 +995,8 @@ restart:
                                                     goto wait_again;       // if next match starts in less time than next video duration, wait again
             else                                    goto restart;          // else, restart the stream
         }
+
+        pthread_join(ffThr, NULL);
     }
     log2file("Twitch limit of 48h is almost reached, resetting stream...");
     close(fifo_fd);
