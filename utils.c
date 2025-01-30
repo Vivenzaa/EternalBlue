@@ -1,12 +1,14 @@
-#include "utils.h"
-#include "APIs.h"
-#include <time.h>
+#include    "utils.h"
+#include    "APIs.h"    
 #include <stdio.h>
+#include <stdlib.h>
 #include <libavformat/avformat.h>
 #include <dirent.h>
 #include <string.h>
-#include <stdlib.h>
 #include <ctype.h>
+#include <time.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 
 void log2file(char *toWrite)
@@ -18,9 +20,30 @@ void log2file(char *toWrite)
     time_info = localtime(&current_time);
     strftime(timeString, sizeof(timeString), "%H:%M:%S", time_info);
 
-    FILE *fichier = fopen("consolelog.out", "a");
+    FILE *fichier = fopen("/var/tmp/Karmine/console.log", "a");
     fprintf(fichier, "[%s] %s\n", timeString, toWrite);
     fclose(fichier);
+}
+
+
+char get_utc_offset() 
+{
+    time_t now = time(NULL); 
+    struct tm utc_time;
+    struct tm local_time;
+
+    gmtime_r(&now, &utc_time);
+    localtime_r(&now, &local_time);
+
+    char offset = local_time.tm_hour - utc_time.tm_hour;
+
+    if (local_time.tm_yday < utc_time.tm_yday) {
+        offset -= 24;
+    } else if (local_time.tm_yday > utc_time.tm_yday) {
+        offset += 24;
+    }
+
+    return offset;
 }
 
 
@@ -125,7 +148,7 @@ char *get_metadata(char *filename)
 
 void write_metadata(char *filename, char *toWrite)
 {
-    char *output = "30784230304235.mp4";
+    char *output = "/var/tmp/Karmine/30784230304235.mp4";
     AVFormatContext *fmt_ctx = NULL;
     AVFormatContext *out_ctx = NULL;
 
@@ -281,8 +304,12 @@ char **file_lines(char *filename) {
 
 unsigned int chooseVideo(unsigned int x, int seed)       // x is the len of file list, NOT the last index of filelist
 {
-    unsigned int tmp = (unsigned int)time(NULL) * seed * 0x5f3759df;   // what the fuck?
-    return tmp % x;   
+    unsigned int tmp;
+    int fichier = open("/dev/random", O_RDONLY);
+    read(fichier, &tmp, sizeof(tmp));
+    close(fichier);
+    
+    return (tmp * seed) % x;   
 }
 
 
@@ -327,14 +354,13 @@ void *cmdRunInThread(void *str)
 }
 
 
-
 int get_video_duration(char *video, char *local_path)             // returns timestamp of video duration
 {
     char cmd[256];
-    snprintf(cmd, sizeof(cmd), "ffprobe -show_entries format=duration \"./%s%s\" > drtn.tmp", local_path, video);
+    snprintf(cmd, sizeof(cmd), "ffprobe -show_entries format=duration \"./%s%s\" > /var/tmp/Karmine/drtn.tmp", local_path, video);
     system(cmd);
 
-    FILE *fichier = fopen("drtn.tmp", "r");
+    FILE *fichier = fopen("/var/tmp/Karmine/drtn.tmp", "r");
     fgets(cmd, sizeof(cmd), fichier);
     fgets(cmd, sizeof(cmd), fichier);
     char duration[6];
@@ -348,7 +374,7 @@ int get_video_duration(char *video, char *local_path)             // returns tim
     duration[6] = '\0';
 
     fclose(fichier);
-    remove("drtn.tmp");
+    remove("/var/tmp/Karmine/drtn.tmp");
 
     return atoi(duration);
 }
@@ -358,10 +384,10 @@ int get_undownloaded_videos(char *local_path, char *google_api_key)
 {
     char tmp[256];
     char video[128];
-    snprintf(tmp, sizeof(tmp), "find %s -printf '%%T+ %%p\n' | sort -r | head > ltsvd.tmp", local_path);
+    snprintf(tmp, sizeof(tmp), "find %s -printf '%%T+ %%p\n' | sort -r | head > /var/tmp/Karmine/ltsvd.tmp", local_path);
     system(tmp);
     strcpy(tmp, "\0");
-    FILE *lst = fopen("ltsvd.tmp", "r");
+    FILE *lst = fopen("/var/tmp/Karmine/ltsvd.tmp", "r");
     do
     {
         fgets(tmp, sizeof(tmp), lst);
@@ -372,7 +398,7 @@ int get_undownloaded_videos(char *local_path, char *google_api_key)
         tmp[strlen(tmp) - 1] = '\0';
     
     fclose(lst);
-    remove("ltsvd.tmp");
+    remove("/var/tmp/Karmine/ltsvd.tmp");
     for (int i = 31; tmp[i] != '\n' && tmp[i] != '\0' && tmp[i] != EOF; i++)
     {
         video[i - 31] = tmp[i];
@@ -390,15 +416,20 @@ int get_undownloaded_videos(char *local_path, char *google_api_key)
     log2file("get_undownloaded_videos: fetching most recent videos...");
     while (i < 9999)
     {
-        YTAPI_Get_Recent_Videos(i, google_api_key);
-        FILE *tmpVids = fopen("recentVids", "r");
+        if (YTAPI_Get_Recent_Videos(i, google_api_key) != 0)
+        {
+            log2file("Couldn't get url list, aborting download...");
+            return 0;
+        }
+        FILE *tmpVids = fopen("/var/tmp/Karmine/recentVids", "r");
         for (int j = 0; j<i; j++)   
             fgets(tmp, sizeof(tmp), tmpVids);
         fclose(tmpVids);
-        remove("recentVids");
+        remove("/var/tmp/Karmine/recentVids");
 
 
         tmp[11] = '\0';
+        printf("most recent: %s\tcurrent distant: %s\n", link, tmp);
         if(strcmp(tmp, link) == 0)
         {
             if (i == 1)

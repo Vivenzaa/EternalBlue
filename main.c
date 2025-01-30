@@ -9,6 +9,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <cjson/cJSON.h>
+#include <time.h>
 
 #define STREAM_KEY "live_1219233412_x9qHLfK4nDukOO8SFaiRNjqivyFuGh"
 #define LOCAL_PATH "videos/"
@@ -33,7 +34,7 @@ void *download_videos(void* bool)
         snprintf(tmp, sizeof(tmp), "mkdir %s", videos[i]);
         system(tmp);
 
-        snprintf(tmp, sizeof(tmp), "yt-dlp --cookies-from-browser firefox -r 5000000 -f 299+140 %s -P ./%s/", videos[i], videos[i]);   // -r 6MB
+        snprintf(tmp, sizeof(tmp), "yt-dlp --cookies-from-browser firefox -r 3000000 -f 299+140 %s -P ./%s/", videos[i], videos[i]);   // -r 6MB
         system(tmp);
 
         char *videoTitle = YTAPI_Get_Video_Name(videos[i], GOOGLE_API_KEY);
@@ -93,11 +94,12 @@ void *ffwrite(void *data)
 }
 
 
+
 int main(void) {
     setlocale(LC_ALL, "fr_FR.UTF-8");
     char **tokensInfos = TTV_API_refresh_access_token(DEFAULT_REFRESH_TOKEN, BOT_ID, BOT_SECRET);
-    long longTmp = atol(tokensInfos[2]);
-    sprintf(tokensInfos[2], "%ld", (long)time(NULL) + longTmp);
+    system("rm -rf /tmp/Karmine/");      system("mkdir /tmp/Karmine");
+    system("rm -rf /var/tmp/Karmine");  system("mkdir /var/tmp/Karmine");
 restart:
 
     char ***WORDLIST = malloc(sizeof(char **) * 9);
@@ -111,28 +113,27 @@ restart:
     WORDLIST[7] = (char *[]){"fncs", NULL};
     WORDLIST[8] = NULL;
     const int CATEGORY_IDS[] = {509663, 30921, 513143, 516575, 21779, 687129551, 504461, 33214};
-    char **playlist = getAllFiles();                                             
+    char **playlist = getAllFiles(LOCAL_PATH);                                           
     char *video = playlist[chooseVideo(size_of_double_array(playlist), SEED)];
-    unlink("video_fifo");
-    mkfifo("video_fifo", 0666);
+    mkfifo("/tmp/Karmine/video_fifo", 0666);
 
 
-    char ffmpegCmd[166];
+    char ffmpegCmd[189];
     snprintf(ffmpegCmd, sizeof(ffmpegCmd),
-        "ffmpeg -loglevel debug -re -i video_fifo "
+        "ffmpeg -loglevel debug -re -i /tmp/Karmine/video_fifo "
         "-c copy -bufsize 18000k "
-        "-f flv rtmp://live.twitch.tv/app/%s > fflog.out 2>&1",
+        "-f flv rtmp://live.twitch.tv/app/%s > /var/tmp/Karmine/ff.log 2>&1",
         STREAM_KEY);
 
     char tmp[256];
 
-    long timestart = (long)time(NULL);
+    long timestart = (long)time(NULL) + 3600*get_utc_offset();
     char *nextVideo = video;
 
     pthread_t ffmpegThreadId;
     pthread_create(&ffmpegThreadId, NULL, cmdRunInThread, (void *)ffmpegCmd);
 
-    int fifo_fd = open("video_fifo", O_WRONLY);
+    int fifo_fd = open("/tmp/Karmine/video_fifo", O_WRONLY);
 
     system("pip install yt-dlp -U --break-system-packages");
     int isDownloaded = 0;
@@ -143,32 +144,26 @@ restart:
     }
 
 
-    while ((long)time(NULL) - timestart < 154000) {
+    while (((long)time(NULL) + 3600*get_utc_offset()) - timestart < 157000) {
         ffdata data = {video, &fifo_fd};
         pthread_t ffThr;
         pthread_create(&ffThr, NULL, ffwrite, (void *)&data);
+        int currentVideoEndtime = (int)time(NULL)+ get_video_duration(video, LOCAL_PATH);
+        tokensInfos = TTV_API_refresh_access_token(tokensInfos[1], BOT_ID, BOT_SECRET);
         TTV_API_update_stream_info(TTV_API_get_streamer_id(tokensInfos[0], CHANNEL_NAME, BOT_ID), tokensInfos[0], CATEGORY_IDS[getGame(video, WORDLIST)], curl_filename(video), BOT_ID);
         if(isDownloaded)
         {
             isDownloaded = 0;
-            playlist = getAllFiles();
+            playlist = getAllFiles(LOCAL_PATH);
         }
         int endtime = get_video_duration(video, LOCAL_PATH) + (int)time(NULL);
         snprintf(tmp, sizeof(tmp), "Now playing %s, estimated end time : %02d:%02d:%02d", video, ((endtime + 3600)/3600)%24, (endtime/60)%60, endtime%60);
         log2file(tmp);
         
 
-        if (atol(tokensInfos[2]) >= (long)time(NULL) + 60)
-        {
-            TTV_API_revoke_access_token(tokensInfos[0], BOT_ID);
-            tokensInfos = TTV_API_refresh_access_token(tokensInfos[1], BOT_ID, BOT_SECRET);
-            log2file("refreshed token");
-            longTmp = atol(tokensInfos[2]);
-            sprintf(tokensInfos[2], "%ld", (long)time(NULL) + longTmp);
-        }
-        log2file("getting stream info");
+        log2file("web_monitoring: getting self stream infos...");
         TTV_API_get_stream_info(tokensInfos[0], CHANNEL_NAME, BOT_ID);
-        FILE *streamInfos = fopen("mntr.data", "r");
+        FILE *streamInfos = fopen("/var/tmp/Karmine/mntr.data", "r");
         char isOnline[8];
         char vwCount[6];
         fgets(isOnline, sizeof(isOnline), streamInfos);
@@ -176,7 +171,7 @@ restart:
         fgets(tmp, sizeof(tmp), streamInfos);
         fgets(vwCount, sizeof(vwCount), streamInfos);
         fclose(streamInfos);
-        remove("mntr.data");
+        remove("/var/tmp/Karmine/mntr.data");
         /*------------------------------------------HANDLE WEB MONITORING------------------------------------------*/ 
                                                                                                                     //
         streamInfos = fopen("/var/www/html/monitoring.json", "w");                                                  //
@@ -185,7 +180,7 @@ restart:
         cJSON_AddStringToObject(json, "status", isOnline);                                                          //
         cJSON_AddStringToObject(json, "videoTitle", video);                                                         //
         cJSON_AddNumberToObject(json, "videoDuration", (double)get_video_duration(video, LOCAL_PATH));              //
-        cJSON_AddNumberToObject(json, "videoStartTime", (double)time(NULL));                                        //
+        cJSON_AddNumberToObject(json, "videoStartTime", (double)time(NULL) + 3600*get_utc_offset());                //
         cJSON_AddNumberToObject(json, "streamStartTime", (double)timestart);                                        //
         cJSON_AddNumberToObject(json, "viewers", (double)atoi(vwCount));                                            //
                                                                                                                     //
@@ -199,57 +194,63 @@ restart:
 
         while (video == nextVideo)
             nextVideo = playlist[chooseVideo(size_of_double_array(playlist), SEED)];
-        video = nextVideo;
         
-        KarmineAPI_handle();
-        FILE *fichier = fopen("next.data", "r");
-        fgets(tmp, sizeof(tmp), fichier);
-        long timeleft = convert_to_timestamp(tmp);
-
-
-        if (timeleft - (long)time(NULL) <= (long)get_video_duration(video, LOCAL_PATH) + 60)     // if next match starts before next video ends (with one more minute)
+        char **KCAPIDatas = KarmineAPI_handle();
+        
+        long start = convert_to_timestamp(KCAPIDatas[0]);
+        long ending = 0;
+        
+        if (start <= (long)get_video_duration(nextVideo, LOCAL_PATH) + currentVideoEndtime)     // if next match starts before next video ends (with one more minute)
         {
-            pthread_join(ffThr, NULL);                                               // wait until current video ends
+            pthread_join(ffThr, NULL);
+            ffdata data = {"./placeholder.mp4", &fifo_fd};
+            pthread_create(&ffThr, NULL, ffwrite, (void *)&data);                                               // wait until current video ends
             log2file("next match will be starting soon, raiding next stream...");
             wait_again:
-            char ending[26];
-            char next[26];
-            char streamer[64];
-            fgets(ending, sizeof(ending), fichier);                         // gets timestamp of match ending
-            timeleft = convert_to_timestamp(ending);
-            fgets(streamer, sizeof(streamer), fichier);                     // gets streamer to raid
-                streamer[strlen(streamer) - 1] = '\0';
-            fclose(fichier);                                                // end of file is reached, closing file
-            snprintf(tmp, sizeof(tmp), "attempting to raid %s...", streamer);
+            
+            ending = convert_to_timestamp(KCAPIDatas[1]);
+            snprintf(tmp, sizeof(tmp), "attempting to raid %s...", KCAPIDatas[2]);
             log2file(tmp);
-            char *raidValue = TTV_API_raid(tokensInfos[0], TTV_API_get_streamer_id(tokensInfos[0], CHANNEL_NAME, BOT_ID), TTV_API_get_streamer_id(tokensInfos[0], streamer, BOT_ID), BOT_ID);
+            char *raidValue = TTV_API_raid(tokensInfos[0], TTV_API_get_streamer_id(tokensInfos[0], CHANNEL_NAME, BOT_ID), TTV_API_get_streamer_id(tokensInfos[0], KCAPIDatas[2], BOT_ID), BOT_ID);
+            
             if(raidValue)
+                snprintf(tmp, sizeof(tmp), "Failed to raid %s: %s", KCAPIDatas[2], raidValue);
+            else
+                snprintf(tmp, sizeof(tmp), "Successfully raided %s", KCAPIDatas[2]);
+            
+            log2file(tmp);
+            log2file("Attempting to close stream...");
+            pthread_join(ffThr, NULL);
+            system("echo q > /tmp/Karmine/video_fifo");
+            close(fifo_fd);
+
+            snprintf(tmp, sizeof(tmp), "Waiting %02ld:%02ld:%02ld until next match, estimated next loop starts at %02ld:%02ld:%02ld...", 
+                    ((ending - time(NULL))/3600) % 24, ((ending - time(NULL))/60)%60, (ending - time(NULL))%60,
+                    (ending/3600) % 24, (ending/60)%60, ending%60);
+            log2file(tmp);
+            if (ending - ((long)time(NULL) + 3600*get_utc_offset()) > 0)
+                sleep(ending - ((long)time(NULL) + 3600*get_utc_offset()));                             // sleep until match ending
+
+            KCAPIDatas = KarmineAPI_handle();      
+            start = convert_to_timestamp(KCAPIDatas[0]);
+            long nextVidDuration = (long)get_video_duration(nextVideo, LOCAL_PATH) + 3600*get_utc_offset() + (long)time(NULL);
+            
+            if (start < nextVidDuration)  
             {
-                snprintf(tmp, sizeof(tmp), "Failed to raid %s: %s", streamer, raidValue);
-                log2file(tmp);
+                snprintf(tmp, sizeof(tmp), "Choosing not the restart the stream right now, next match starts at %02ld:%02ld:%02ld while next video would end at %02ld:%02ld:%02ld",
+                        (start / 3600) % 24, (start/60)%60, start%60,
+                        (nextVidDuration / 3600) % 24, ((nextVidDuration)/60)%60, nextVidDuration%60);
+                fifo_fd = open("/tmp/Karmine/video_fifo", O_WRONLY);      // if next match starts in less time than next video duration, wait again
+                goto wait_again;
             }
             else
             {
-                snprintf(tmp, sizeof(tmp), "Successfully raided %s", streamer);
-                log2file(tmp);
+                log2file("restarting stream...");
+                goto restart;          // else, restart the stream
             }
-            log2file("Attempting to close stream...");
-            system("echo q > ./video_fifo");
-            close(fifo_fd);
-            snprintf(tmp, sizeof(tmp), "Waiting %02ld:%02ld:%02ld until next match, estimated next loop starts in %02ld:%02ld:%02ld...", 
-                (timeleft - (long)time(NULL))/3600, ((timeleft - (long)time(NULL))/60)%60, (timeleft - (long)time(NULL))%60, 
-                timeleft/3600, (timeleft/60)%60, timeleft%60);
-            log2file(tmp);
-            sleep(timeleft - (long)time(NULL));                             // sleep until match ending
-            KarmineAPI_handle();                                            // refresh api data
-            fichier = fopen("next.data", "r");
-            fgets(next, sizeof(next), fichier);                             // gets timestamp of next match
-            timeleft = convert_to_timestamp(next);
-            if (timeleft - (long)time(NULL) < (long)get_video_duration(video, LOCAL_PATH))  
-                                                    goto wait_again;       // if next match starts in less time than next video duration, wait again
-            else                                    goto restart;          // else, restart the stream
+                
         }
-
+        video = nextVideo;
         pthread_join(ffThr, NULL);
     }
     log2file("Twitch limit of 48h is almost reached, resetting stream...");
@@ -263,8 +264,25 @@ goto restart;
 
 
 /*
-    New solution : 
-        mettre une variable type callback sur le thread ffmpeg2 au lieu de le join pour éviter les emmerdes de raid
-        mettre le callback dans une boucle avant le if timeleft (ig, à reflechir)
-        test en local sans stream avec api.json custom
+    changer random par /dev/random (ok) || hash logs
+    passer web monitoring vers node js
+
+    un jour : 
+        ajouter des arguments au programme
+            - --enable-chatbot
+            - --enable-monitoring-server
+            - --full-fflog
+            - --exec-mod (NULL = main, debug(no system()))
+            
+
+        coder le terrifiant chatbot twitch
+            - commencer par faire communiquer 2 programmes ensemble de façon efficace
+            - faire un serveur https pour prendre les requêtes twitch (nodeJS ?)
+            - se demerder jsp jme suis pas encore renseigné
+            - IMPORTANT : if (message == Cheap viewers on *)    perma_ban(user);
+            - ajouter des arguments :
+                - -access ACCESS_TOKEN
+                - -refresh REFRESH_TOKEN
+
 */
+ 
