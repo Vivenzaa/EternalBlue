@@ -5,13 +5,17 @@
 #include <string.h>
 #include <cjson/cJSON.h>
 
-
 #define KARMINE_API_NB_FETCHED 3
 
-char **KarmineAPI_handle()         // returns all most recent and relevant datas from KarmineCorp API in an array of strings
+
+char KarmineAPI_handle(int event, char ***array)         // returns all most recent and relevant datas from KarmineCorp API in an array of strings
 {
-    system("curl -X GET https://api2.kametotv.fr/karmine/group_a -o /var/tmp/Karmine/api.json");
-    log2file("Fetching api data of La Prestigieuse...");
+    if (!event)
+    {
+        system("curl -X GET https://api2.kametotv.fr/karmine/group_a -o /var/tmp/Karmine/api.json");
+        log2file("Fetching api data of La Prestigieuse...");
+    }
+    
     FILE *fichier = fopen("/var/tmp/Karmine/api.json", "r");
     char tmp[SizeOfFile("/var/tmp/Karmine/api.json")];
     fread(tmp, 1, sizeof(tmp), fichier); 
@@ -21,11 +25,20 @@ char **KarmineAPI_handle()         // returns all most recent and relevant datas
         if (error_ptr != NULL) { 
             log2file("Couldn't fetch Karmine's API data");
         } 
-        cJSON_Delete(useless); 
-        return 0; 
+        char *handler[3] = {"2085-12-31T23:59:29.000Z", "2085-12-31T23:59:29.000Z", "placeholder"};
+        memcpy(*array, handler, sizeof(char *) * KARMINE_API_NB_FETCHED);
+        cJSON_Delete(useless);
+        return 0;
     }
     cJSON *json = cJSON_GetObjectItemCaseSensitive(useless, "events");
-    cJSON *upcomming = cJSON_GetArrayItem(json, 0);
+    cJSON *upcomming = cJSON_GetArrayItem(json, event);
+    if(upcomming == NULL)
+    {
+        char *handler[3] = {"2037-12-31T23:59:29.000Z", "2037-12-31T23:59:29.000Z", "placeholder"};
+        memcpy(*array, handler, sizeof(char *) * KARMINE_API_NB_FETCHED);
+        cJSON_Delete(useless);
+        return 0;
+    }
     cJSON *start    = cJSON_GetObjectItemCaseSensitive(upcomming, "start");
     cJSON *end      = cJSON_GetObjectItemCaseSensitive(upcomming, "end");
     cJSON *channel  = cJSON_GetObjectItemCaseSensitive(upcomming, "streamLink");
@@ -43,14 +56,12 @@ char **KarmineAPI_handle()         // returns all most recent and relevant datas
         strcpy(strArr[2], channel->valuestring);
         totalsize += strlen(end->valuestring) + 1;
 
-    char *memHdlr[totalsize];
-    memcpy(memHdlr, strArr, sizeof(char *) * KARMINE_API_NB_FETCHED);
+
+    memcpy(*array, strArr, sizeof(char *) * KARMINE_API_NB_FETCHED);
     free(strArr);
 
-    char **toReturn = memHdlr;
-
     cJSON_Delete(useless);
-    return toReturn;
+    return 0;
 }
 
 
@@ -163,7 +174,6 @@ char *YTAPI_Get_Video_Name(char *videoId, char *google_api_key)
 
     cJSON_Delete(json);
     return toReturn;
-
 }
 
 
@@ -300,7 +310,7 @@ void TTV_API_update_stream_info(char *streamerId, char *access, int gameId, char
     strcat(titleRediff, " - [REDIFFUSION]");
     snprintf(tmp, sizeof(tmp), "curl -X PATCH 'https://api.twitch.tv/helix/channels?broadcaster_id=%s' "
     "-H 'Authorization: Bearer %s' -H 'Client-Id: %s' -H 'Content-Type: application/json' "
-    "--data-raw '{\"game_id\":\"%d\", \"title\":\"%s\", \"broadcaster_language\":\"fr\",  \"tags\":[\"Rediffusion\", \"247Stream\", \"botstream\", \"Français\", \"KarmineCorp\"]}' -o /var/tmp/Karmine/response.json", 
+    "--data-raw '{\"game_id\":\"%d\", \"title\":\"%s\", \"broadcaster_language\":\"fr\",  \"tags\":[\"KCORP\", \"Rediffusion\", \"247Stream\", \"botstream\", \"Français\", \"KarmineCorp\"]}' -o /var/tmp/Karmine/response.json", 
     streamerId, access, bot_id, gameId, titleRediff);
     system(tmp);
 
@@ -380,4 +390,49 @@ char *TTV_API_raid(char *access, char *fromId, char *toId, char *bot_id)
         return toReturn;
     }
     return NULL;
+}
+
+
+char *TTV_API_get_app_token(char *bot_id, char *bot_secret)
+{
+    {
+        char tmp[254];
+        snprintf(tmp, sizeof(tmp), "curl -X POST https://id.twitch.tv/oauth2/token -H 'Content-Type: application/x-www-form-urlencoded' "
+        "-d 'client_id=%s&client_secret=%s&grant_type=client_credentials' -o /tmp/Karmine/appresponse.json", bot_id, bot_secret);
+        system(tmp);
+    }
+
+    char tmp[SizeOfFile("/tmp/Karmine/appresponse.json")];
+    FILE *fichier = fopen("/tmp/Karmine/appresponse.json", "r");
+    fread(tmp, 1, sizeof(tmp), fichier);
+    fclose(fichier);
+    remove("/tmp/Karmine/appresponse.json");
+    cJSON *json = cJSON_Parse(tmp);
+    if (json == NULL) { 
+        const char *error_ptr = cJSON_GetErrorPtr(); 
+        if (error_ptr != NULL) { 
+            log2file((char *)error_ptr); 
+            return NULL;
+        } 
+        cJSON_Delete(json); 
+        return NULL; 
+    }
+    
+    cJSON *error = cJSON_GetObjectItemCaseSensitive(json, "error");
+    if (error)
+    {
+        snprintf(tmp, sizeof(tmp), "Request failed: %s", error->valuestring);
+        log2file(tmp);
+        cJSON_Delete(json);
+        return NULL;
+    }
+
+    
+    cJSON *token = cJSON_GetObjectItemCaseSensitive(json, "access_token");
+    
+    
+    char *toReturn = malloc(strlen(token->valuestring));
+    strcpy(toReturn, token->valuestring);
+
+    return toReturn;
 }

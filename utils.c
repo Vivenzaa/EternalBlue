@@ -15,10 +15,10 @@ void log2file(char *toWrite)
 {
     time_t current_time;
     struct tm * time_info;
-    char timeString[9];
+    char timeString[20];        // 18 is enough for 64bit systems but somehow my 32bit server needs 20 ??
     time(&current_time);
     time_info = localtime(&current_time);
-    strftime(timeString, sizeof(timeString), "%H:%M:%S", time_info);
+    strftime(timeString, sizeof(timeString), "%x %H:%M:%S", time_info);
 
     FILE *fichier = fopen("/var/tmp/Karmine/console.log", "a");
     fprintf(fichier, "[%s] %s\n", timeString, toWrite);
@@ -130,6 +130,7 @@ int getGame(char *title, char ***wordlist)
 
 char *get_metadata(char *filename)
 {
+    {char tmp[256]; snprintf(tmp, sizeof(tmp), "fetching metadatas of %s...", filename); log2file(tmp);}
     AVFormatContext *fmt_ctx = NULL;
     avformat_open_input(&fmt_ctx, filename, NULL, NULL);
     AVDictionaryEntry *tag = NULL;
@@ -142,13 +143,14 @@ char *get_metadata(char *filename)
             return toReturn;
         }
     }
+    {char tmp[256]; snprintf(tmp, sizeof(tmp), "couldn't get metadatas of %s...", filename); log2file(tmp);}
     return 0;
 }
 
 
 void write_metadata(char *filename, char *toWrite)
 {
-    char *output = "/var/tmp/Karmine/30784230304235.mp4";
+    char *output = "/tmp/Karmine/30784230304235.mp4";
     AVFormatContext *fmt_ctx = NULL;
     AVFormatContext *out_ctx = NULL;
 
@@ -219,7 +221,6 @@ void write_metadata(char *filename, char *toWrite)
     avformat_close_input(&fmt_ctx);
 
     remove(filename);
-    rename(output, filename);
     log2file("write_metadata: successfully added metadata to file...");
 }
 
@@ -398,6 +399,7 @@ int get_undownloaded_videos(char *local_path, char *google_api_key)
         tmp[strlen(tmp) - 1] = '\0';
     
     fclose(lst);
+
     remove("/var/tmp/Karmine/ltsvd.tmp");
     for (int i = 31; tmp[i] != '\n' && tmp[i] != '\0' && tmp[i] != EOF; i++)
     {
@@ -445,3 +447,13 @@ int get_undownloaded_videos(char *local_path, char *google_api_key)
 }
 
 
+void free_all(char **tab)
+{
+    for (int i = 0; i < 256; i++)
+    {
+        if (tab[i] == NULL)
+            break;
+        free(tab[i]);// log2file for free() ? 
+    }  
+    free(tab);
+}
