@@ -22,6 +22,7 @@ long convert_to_timestamp(char *datetime);
 void *cmdRunInThread(void *str);
 int get_video_duration(char *video, char *local_path);
 int get_undownloaded_videos(char *local_path, char *google_api_key);
-void free_all(char **tab);
+void recur_free(char **tab);
+void recur_tabcpy(char **dest, char **src, int size);
 
 #endif

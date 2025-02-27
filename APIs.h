@@ -1,7 +1,7 @@
 #ifndef APIs_H
 #define APIs_H
 
-char KarmineAPI_handle(int event, char ***array);
+int  KarmineAPI_timeto(char *streamer, int current_time, char wantsStart);
 char YTAPI_Get_Recent_Videos(unsigned int max, char *google_api_key);          // Creates file of form yt_id;yt_title sorted by most recent video
 char *YTAPI_Get_Video_Name(char *videoId, char *google_api_key);
 void TTV_API_revoke_access_token(char *access, char *bot_id);

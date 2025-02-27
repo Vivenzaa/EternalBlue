@@ -136,8 +136,8 @@ char *get_metadata(char *filename)
     AVDictionaryEntry *tag = NULL;
 
     while ((tag = av_dict_get(fmt_ctx->metadata, "", tag, AV_DICT_IGNORE_SUFFIX))) {
-        if (strcmp(tag->key, "comment") == 0) {
-            char *toReturn = malloc(sizeof(char *) * strlen(tag->value));
+        if (!strcmp(tag->key, "comment")) {
+            char *toReturn = malloc(strlen(tag->value) + 1);
             strcpy(toReturn, tag->value);
             avformat_close_input(&fmt_ctx);   
             return toReturn;
@@ -337,7 +337,9 @@ long convert_to_timestamp(char *datetime) {     // converts YYYY-MM-DDThh:mm:ss.
 
     time_t timestamp = timegm(&tm);
     if (timestamp == -1) {
-        log2file("convert_to_timestamp : Conversion en timestamp échouée.");
+        char tmp[256];
+        snprintf(tmp, sizeof(tmp), "convert_to_timestamp : Conversion en timestamp échouée. str given : %s, after processing : %s", datetime, temp);
+        log2file(tmp);
         return -1;
     }
 
@@ -410,9 +412,11 @@ int get_undownloaded_videos(char *local_path, char *google_api_key)
             break;
         }
     }
-    char *link = get_metadata(video);       // form : https://www.youtube.com/watch?v=xxxxxxxxxxx
-    link = (link + strlen(link) - 11);      // form : xxxxxxxxxxx
-
+    char *fullLink = get_metadata(video);       // form : https://www.youtube.com/watch?v=xxxxxxxxxxx
+    char link[12];
+    //link = (link + strlen(link) - 11);      // form : xxxxxxxxxxx
+    strcpy(link, fullLink + strlen(fullLink) - 11);
+    free(fullLink);
 
     int i = 1;
     log2file("get_undownloaded_videos: fetching most recent videos...");
@@ -431,23 +435,22 @@ int get_undownloaded_videos(char *local_path, char *google_api_key)
 
 
         tmp[11] = '\0';
-        printf("most recent: %s\tcurrent distant: %s\n", link, tmp);
-        if(strcmp(tmp, link) == 0)
+        if(!strcmp(tmp, link))
         {
             if (i == 1)
                 return 0;
+                
             YTAPI_Get_Recent_Videos(i - 1, google_api_key);
             return i-1;
         }
 
         i++;
-    }  
-
+    } 
     return 0;
 }
 
 
-void free_all(char **tab)
+void recur_free(char **tab)
 {
     for (int i = 0; i < 256; i++)
     {
@@ -456,4 +459,20 @@ void free_all(char **tab)
         free(tab[i]);// log2file for free() ? 
     }  
     free(tab);
+}
+
+
+void recur_tabcpy(char **dest, char **src, int size) {
+    for (int i = 0; i < size; i++) {
+        if (src[i] == NULL)
+        {
+            dest[i] = NULL;
+            continue;
+        }
+        dest[i] = strdup(src[i]); // Alloue et copie la chaîne
+        if (dest[i] == NULL) {
+            fprintf(stderr, "Erreur d'allocation mémoire\n");
+            exit(EXIT_FAILURE);
+        }
+    }
 }

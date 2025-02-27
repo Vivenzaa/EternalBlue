@@ -5,17 +5,11 @@
 #include <string.h>
 #include <cjson/cJSON.h>
 
-#define KARMINE_API_NB_FETCHED 3
 
-
-char KarmineAPI_handle(int event, char ***array)         // returns all most recent and relevant datas from KarmineCorp API in an array of strings
+int KarmineAPI_timeto(char *streamer, int current_time, char wantsStart)
 {
-    if (!event)
-    {
-        system("curl -X GET https://api2.kametotv.fr/karmine/group_a -o /var/tmp/Karmine/api.json");
-        log2file("Fetching api data of La Prestigieuse...");
-    }
-    
+    system("curl -X GET https://api2.kametotv.fr/karmine/group_a -o /var/tmp/Karmine/api.json");
+    log2file("Fetching API datas of La Prestigieuse...");
     FILE *fichier = fopen("/var/tmp/Karmine/api.json", "r");
     char tmp[SizeOfFile("/var/tmp/Karmine/api.json")];
     fread(tmp, 1, sizeof(tmp), fichier); 
@@ -24,41 +18,48 @@ char KarmineAPI_handle(int event, char ***array)         // returns all most rec
         const char *error_ptr = cJSON_GetErrorPtr(); 
         if (error_ptr != NULL) { 
             log2file("Couldn't fetch Karmine's API data");
-        } 
-        char *handler[3] = {"2085-12-31T23:59:29.000Z", "2085-12-31T23:59:29.000Z", "placeholder"};
-        memcpy(*array, handler, sizeof(char *) * KARMINE_API_NB_FETCHED);
+        }
+        log2file("json file is NULL, aborting...");
+        streamer = NULL;
         cJSON_Delete(useless);
         return 0;
     }
+    
     cJSON *json = cJSON_GetObjectItemCaseSensitive(useless, "events");
-    cJSON *upcomming = cJSON_GetArrayItem(json, event);
-    if(upcomming == NULL)
+    for(int i = 0; i <= 8; i++)
     {
-        char *handler[3] = {"2037-12-31T23:59:29.000Z", "2037-12-31T23:59:29.000Z", "placeholder"};
-        memcpy(*array, handler, sizeof(char *) * KARMINE_API_NB_FETCHED);
-        cJSON_Delete(useless);
-        return 0;
+        cJSON *upcomming = cJSON_GetArrayItem(json, i);
+        if(upcomming == NULL)
+        {
+            log2file("upcomming is NULL, aborting...");
+            streamer = NULL;
+            cJSON_Delete(useless);
+            return 0;
+        }
+        cJSON *start    = cJSON_GetObjectItemCaseSensitive(upcomming, "start");
+        cJSON *channel  = cJSON_GetObjectItemCaseSensitive(upcomming, "streamLink");
+        cJSON *end      = cJSON_GetObjectItemCaseSensitive(upcomming, "end");
+        printf("KarmineAPI: start:%ld\tend:%ld\ttime:%d", convert_to_timestamp(start->valuestring), convert_to_timestamp(end->valuestring), current_time);
+        if(convert_to_timestamp(start->valuestring) > current_time && wantsStart)
+        {
+            streamer = realloc(streamer, strlen(channel->valuestring) + 1);
+            strcpy(streamer, channel->valuestring);
+            printf("streamer: %s\n", streamer);
+            int tmp = convert_to_timestamp(start->valuestring) - current_time;
+            cJSON_Delete(useless);
+            return tmp;
+        }
+        //cJSON *end      = cJSON_GetObjectItemCaseSensitive(upcomming, "end");
+        if(convert_to_timestamp(end->valuestring) > current_time)
+        {
+            streamer = realloc(streamer, strlen(channel->valuestring) + 1);
+            strcpy(streamer, channel->valuestring);
+            printf("streamer: %s\n", streamer);
+            int tmp = convert_to_timestamp(end->valuestring) - current_time;
+            cJSON_Delete(useless);
+            return tmp;
+        }
     }
-    cJSON *start    = cJSON_GetObjectItemCaseSensitive(upcomming, "start");
-    cJSON *end      = cJSON_GetObjectItemCaseSensitive(upcomming, "end");
-    cJSON *channel  = cJSON_GetObjectItemCaseSensitive(upcomming, "streamLink");
-
-    int totalsize = sizeof(char *) * KARMINE_API_NB_FETCHED;
-
-    char **strArr = malloc(totalsize);
-    strArr[0] = malloc(strlen(start->valuestring) + 1);
-        strcpy(strArr[0], start->valuestring);
-        totalsize += strlen(start->valuestring) + 1;
-    strArr[1] = malloc(strlen(end->valuestring) + 1);
-        strcpy(strArr[1], end->valuestring);
-        totalsize += strlen(end->valuestring) + 1;
-    strArr[2] = malloc(strlen(channel->valuestring) + 1);
-        strcpy(strArr[2], channel->valuestring);
-        totalsize += strlen(end->valuestring) + 1;
-
-
-    memcpy(*array, strArr, sizeof(char *) * KARMINE_API_NB_FETCHED);
-    free(strArr);
 
     cJSON_Delete(useless);
     return 0;
@@ -169,7 +170,7 @@ char *YTAPI_Get_Video_Name(char *videoId, char *google_api_key)
     cJSON *snippet =    cJSON_GetObjectItemCaseSensitive(item, "snippet");
     cJSON *title =      cJSON_GetObjectItemCaseSensitive(snippet, "title");
 
-    char *toReturn = malloc(sizeof(char *) * strlen(title->valuestring));
+    char *toReturn = malloc(strlen(title->valuestring) + 1);
     strcpy(toReturn, title->valuestring);
 
     cJSON_Delete(json);
@@ -358,7 +359,7 @@ char *TTV_API_get_streamer_id(char *access, char *streamer_login, char *bot_id)
     cJSON *id = cJSON_GetObjectItemCaseSensitive(item, "id");
     if(id == NULL)
         return NULL;
-    char *toReturn = malloc(sizeof(id->valuestring));
+    char *toReturn = malloc(strlen(id->valuestring) + 1);
     strcpy(toReturn, id->valuestring);
     remove("/var/tmp/Karmine/response.json");
     cJSON_Delete(json);
@@ -382,7 +383,7 @@ char *TTV_API_raid(char *access, char *fromId, char *toId, char *bot_id)
     if (error)
     {
         cJSON *msg = cJSON_GetObjectItemCaseSensitive(json, "message");
-        char *toReturn = malloc(sizeof(msg->valuestring));
+        char *toReturn = malloc(strlen(msg->valuestring) + 1);
         strcpy(toReturn, msg->valuestring);
         
         cJSON_Delete(json);
@@ -431,7 +432,7 @@ char *TTV_API_get_app_token(char *bot_id, char *bot_secret)
     cJSON *token = cJSON_GetObjectItemCaseSensitive(json, "access_token");
     
     
-    char *toReturn = malloc(strlen(token->valuestring));
+    char *toReturn = malloc(strlen(token->valuestring) + 1);
     strcpy(toReturn, token->valuestring);
 
     return toReturn;
