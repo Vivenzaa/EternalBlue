@@ -6,7 +6,7 @@
 #include <cjson/cJSON.h>
 
 
-int KarmineAPI_timeto(char *streamer, int current_time, char wantsStart)
+int KarmineAPI_timeto(char **streamer, int current_time, char wantsStart)
 {
     system("curl -X GET https://api2.kametotv.fr/karmine/group_a -o /var/tmp/Karmine/api.json");
     log2file("Fetching API datas of La Prestigieuse...");
@@ -20,49 +20,59 @@ int KarmineAPI_timeto(char *streamer, int current_time, char wantsStart)
             log2file("Couldn't fetch Karmine's API data");
         }
         log2file("json file is NULL, aborting...");
-        streamer = NULL;
+        *streamer = NULL;
         cJSON_Delete(useless);
         return 0;
     }
     
+    int returnValue = 0;
     cJSON *json = cJSON_GetObjectItemCaseSensitive(useless, "events");
-    for(int i = 0; i <= 8; i++)
+    for(int i = 0; i <= cJSON_GetArraySize(json); i++)
     {
         cJSON *upcomming = cJSON_GetArrayItem(json, i);
         if(upcomming == NULL)
         {
             log2file("upcomming is NULL, aborting...");
-            streamer = NULL;
+            *streamer = NULL;
             cJSON_Delete(useless);
             return 0;
         }
         cJSON *start    = cJSON_GetObjectItemCaseSensitive(upcomming, "start");
-        cJSON *channel  = cJSON_GetObjectItemCaseSensitive(upcomming, "streamLink");
-        cJSON *end      = cJSON_GetObjectItemCaseSensitive(upcomming, "end");
-        printf("KarmineAPI: start:%ld\tend:%ld\ttime:%d", convert_to_timestamp(start->valuestring), convert_to_timestamp(end->valuestring), current_time);
-        if(convert_to_timestamp(start->valuestring) > current_time && wantsStart)
-        {
-            streamer = realloc(streamer, strlen(channel->valuestring) + 1);
-            strcpy(streamer, channel->valuestring);
-            printf("streamer: %s\n", streamer);
-            int tmp = convert_to_timestamp(start->valuestring) - current_time;
-            cJSON_Delete(useless);
-            return tmp;
-        }
         //cJSON *end      = cJSON_GetObjectItemCaseSensitive(upcomming, "end");
-        if(convert_to_timestamp(end->valuestring) > current_time)
+        
+        if(convert_to_timestamp(start->valuestring) > current_time)     // si positif ?
         {
-            streamer = realloc(streamer, strlen(channel->valuestring) + 1);
-            strcpy(streamer, channel->valuestring);
-            printf("streamer: %s\n", streamer);
-            int tmp = convert_to_timestamp(end->valuestring) - current_time;
-            cJSON_Delete(useless);
-            return tmp;
+            int tmp = 0;
+            if (wantsStart)
+                tmp = convert_to_timestamp(start->valuestring);
+            else
+                tmp = convert_to_timestamp(cJSON_GetObjectItemCaseSensitive(upcomming, "end")->valuestring);
+            tmp -= current_time;
+            if (tmp <= 0)
+                continue;
+            cJSON *channel  = cJSON_GetObjectItemCaseSensitive(upcomming, "streamLink");
+            *streamer = realloc(*streamer, strlen(channel->valuestring) + 1);
+            strcpy(*streamer, channel->valuestring);
+            returnValue = tmp;
+            break;
+        }
+        else
+        {
+            int endtime = convert_to_timestamp(cJSON_GetObjectItemCaseSensitive(upcomming, "end")->valuestring) - current_time;
+            if (endtime > 0)
+            {
+                if (wantsStart)
+                    continue;
+                cJSON *channel  = cJSON_GetObjectItemCaseSensitive(upcomming, "streamLink");
+                *streamer = realloc(*streamer, strlen(channel->valuestring) + 1);
+                strcpy(*streamer, channel->valuestring);
+                returnValue = endtime;
+                break;
+            }
         }
     }
-
     cJSON_Delete(useless);
-    return 0;
+    return returnValue;
 }
 
 

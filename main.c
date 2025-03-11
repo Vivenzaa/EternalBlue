@@ -21,6 +21,7 @@
 #define GOOGLE_API_KEY "AIzaSyA_mlDBPL3nTGUiIyonwF6HCnKeHnWdanM"
 #define SEED 0xb00b5
 
+
 void *download_videos(void *bool)
 {
     char **videos = file_lines("/var/tmp/Karmine/recentVids");
@@ -218,13 +219,13 @@ restart:
             isDownloaded = 0;
             playlist = getAllFiles(LOCAL_PATH);
         }
-        int endtime = get_video_duration(video, LOCAL_PATH) + (int)time(NULL);
+        int endtime = get_video_duration(video, LOCAL_PATH) + (int)time(NULL) + current_time_offset;
         snprintf(tmp, sizeof(tmp), "Now playing %s, estimated end time : %02d:%02d:%02d", video, ((endtime + 3600) / 3600) % 24, (endtime / 60) % 60, endtime % 60);
         log2file(tmp);
 
         if (settings[2])
         {
-            /*------------------------------------------HANDLE WEB MONITORING------------------------------------------*/
+            /*------------------------------------HANDLE WEB MONITORING------------------------------------*/
             log2file("web_monitoring: getting self stream infos...");                                      //
             TTV_API_get_stream_info(tokensInfos[0], CHANNEL_NAME, BOT_ID);                                 //
             FILE *streamInfos = fopen("/var/tmp/Karmine/mntr.data", "r");                                  //
@@ -252,15 +253,15 @@ restart:
             fclose(streamInfos);                                                                           //
             cJSON_free(json_str);                                                                          //
             cJSON_Delete(json);                                                                            //
-            /*------------------------------------------HANDLE WEB MONITORING------------------------------------------*/
+            /*------------------------------------HANDLE WEB MONITORING------------------------------------*/
         }
 
         while (video == nextVideo)
             nextVideo = playlist[chooseVideo(size_of_double_array(playlist), SEED)];
 
         
-        int KarmineToWait = KarmineAPI_timeto(streamer, time(NULL) + current_time_offset, 1);
-        if (KarmineToWait <= (long)get_video_duration(nextVideo, LOCAL_PATH) + endtime + current_time_offset) // if next match starts before next video ends (with one more minute)
+        int KarmineToWait = KarmineAPI_timeto(&streamer, time(NULL) + current_time_offset, 1);
+        if (KarmineToWait + (int)time(NULL) + current_time_offset <= (int)get_video_duration(nextVideo, LOCAL_PATH) + endtime) // if next match starts before next video ends (with one more minute)
         {
             pthread_join(ffThr, NULL);
             ffdata data = {"./placeholder.mp4", &fifo_fd};
@@ -283,7 +284,7 @@ restart:
             system("echo q > /tmp/Karmine/video_fifo");
             close(fifo_fd);
         wait_again:
-            KarmineToWait = KarmineAPI_timeto(streamer, time(NULL) + current_time_offset, 0);
+            KarmineToWait = KarmineAPI_timeto(&streamer, time(NULL) + current_time_offset, 0);
             if (KarmineToWait > 20000)          // si il y a plus de 6h d'attente c'est bizarre, on restart
             {
                 log2file("Waiting time is above 5h30, assuming an error was made, restarting...");
@@ -294,17 +295,17 @@ restart:
                      (KarmineToWait / 3600) % 24, (KarmineToWait / 60) % 60, KarmineToWait % 60,
                      ((KarmineToWait + (int)time(NULL) + current_time_offset) / 3600) % 24, ((KarmineToWait + (int)time(NULL) + current_time_offset) / 60) % 60, (KarmineToWait + (int)time(NULL) + current_time_offset) % 60);
             log2file(tmp);
-            sleep(KarmineToWait + 60); // sleep until match endingimages/
+            sleep(KarmineToWait + 60); // sleep until match ending
             
 
-            KarmineToWait = KarmineAPI_timeto(streamer, time(NULL) + current_time_offset, 1);
+            KarmineToWait = KarmineAPI_timeto(&streamer, time(NULL) + current_time_offset, 1);
             int nextVidDuration = get_video_duration(nextVideo, LOCAL_PATH);
 
             if (nextVidDuration > KarmineToWait)
             {
                 snprintf(tmp, sizeof(tmp), "Choosing not the restart the stream right now, next match starts at %02d:%02d:%02d while next video would end at %02d:%02d:%02d",
-                         ((KarmineToWait + (int)time(NULL) + current_time_offset) / 3600) % 24, ((KarmineToWait + (int)time(NULL) + current_time_offset) / 60) % 60, (KarmineToWait + (int)time(NULL) + current_time_offset) % 60,
-                         ((nextVidDuration + (int)time(NULL) + current_time_offset) / 3600) % 24, ((nextVidDuration + (int)time(NULL) + current_time_offset) / 60) % 60, (nextVidDuration + (int)time(NULL) + current_time_offset) % 60);
+                        ((KarmineToWait + (int)time(NULL) + current_time_offset) / 3600) % 24, ((KarmineToWait + (int)time(NULL) + current_time_offset) / 60) % 60, (KarmineToWait + (int)time(NULL) + current_time_offset) % 60,
+                        ((nextVidDuration + (int)time(NULL) + current_time_offset) / 3600) % 24, ((nextVidDuration + (int)time(NULL) + current_time_offset) / 60) % 60, (nextVidDuration + (int)time(NULL) + current_time_offset) % 60);
                 log2file(tmp);
                 goto wait_again;
             }
@@ -328,7 +329,7 @@ restart:
 }
 
 /*
-    TEST APPRONFONDI À FAIRE SUR get_video_duration(), prendre la return value actuelle du server
+    migrer le web_monitoring vers du serveur HTTP sans graphismes (peut être faire ça avec le serveur custom ?)
 
     online.c (full http):
         - execution normale sous js avec redirection vers c pour garder des logs et gérer les requepetes plus tard
