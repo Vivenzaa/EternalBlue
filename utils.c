@@ -115,7 +115,6 @@ int getGame(char *title, char ***wordlist)
                 log2file(tmp);
                 return i;
             }
-                
             j++;
         }
         j = 0;
@@ -360,10 +359,10 @@ void *cmdRunInThread(void *str)
 int get_video_duration(char *video, char *local_path)             // returns timestamp of video duration
 {
     char cmd[256];
-    snprintf(cmd, sizeof(cmd), "ffprobe -show_entries format=duration \"./%s%s\" > /var/tmp/Karmine/drtn.tmp", local_path, video);
+    snprintf(cmd, sizeof(cmd), "ffprobe -show_entries format=duration \"./%s%s\" > /tmp/Karmine/drtn.tmp", local_path, video);
     system(cmd);
 
-    FILE *fichier = fopen("/var/tmp/Karmine/drtn.tmp", "r");
+    FILE *fichier = fopen("/tmp/Karmine/drtn.tmp", "r");
     fgets(cmd, sizeof(cmd), fichier);
     fgets(cmd, sizeof(cmd), fichier);
     char duration[6];
@@ -377,7 +376,7 @@ int get_video_duration(char *video, char *local_path)             // returns tim
     duration[6] = '\0';
 
     fclose(fichier);
-    remove("/var/tmp/Karmine/drtn.tmp");
+    remove("/tmp/Karmine/drtn.tmp");
 
     return atoi(duration);
 }
@@ -387,10 +386,10 @@ int get_undownloaded_videos(char *local_path, char *google_api_key)
 {
     char tmp[256];
     char video[128];
-    snprintf(tmp, sizeof(tmp), "find %s -printf '%%T+ %%p\n' | sort -r | head > /var/tmp/Karmine/ltsvd.tmp", local_path);
+    snprintf(tmp, sizeof(tmp), "find %s -printf '%%T+ %%p\n' | sort -r | head > /tmp/Karmine/ltsvd.tmp", local_path);
     system(tmp);
     strcpy(tmp, "\0");
-    FILE *lst = fopen("/var/tmp/Karmine/ltsvd.tmp", "r");
+    FILE *lst = fopen("/tmp/Karmine/ltsvd.tmp", "r");
     do
     {
         fgets(tmp, sizeof(tmp), lst);
@@ -402,7 +401,7 @@ int get_undownloaded_videos(char *local_path, char *google_api_key)
     
     fclose(lst);
 
-    remove("/var/tmp/Karmine/ltsvd.tmp");
+    remove("/tmp/Karmine/ltsvd.tmp");
     for (int i = 31; tmp[i] != '\n' && tmp[i] != '\0' && tmp[i] != EOF; i++)
     {
         video[i - 31] = tmp[i];
@@ -427,11 +426,11 @@ int get_undownloaded_videos(char *local_path, char *google_api_key)
             log2file("Couldn't get url list, aborting download...");
             return 0;
         }
-        FILE *tmpVids = fopen("/var/tmp/Karmine/recentVids", "r");
+        FILE *tmpVids = fopen("/tmp/Karmine/recentVids", "r");
         for (int j = 0; j<i; j++)   
             fgets(tmp, sizeof(tmp), tmpVids);
         fclose(tmpVids);
-        remove("/var/tmp/Karmine/recentVids");
+        remove("/tmp/Karmine/recentVids");
 
 
         tmp[11] = '\0';

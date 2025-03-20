@@ -24,8 +24,8 @@
 
 void *download_videos(void *bool)
 {
-    char **videos = file_lines("/var/tmp/Karmine/recentVids");
-    remove("/var/tmp/Karmine/recentVids");
+    char **videos = file_lines("/tmp/Karmine/recentVids");
+    remove("/tmp/Karmine/recentVids");
     char tmp[256];
     for (int i = size_of_double_array(videos) - 1; i >= 0; i--)
     {
@@ -36,7 +36,14 @@ void *download_videos(void *bool)
         system(tmp);
 
         snprintf(tmp, sizeof(tmp), "yt-dlp --cookies-from-browser firefox -r 3000000 -f 299+140 %s%s -P ./%s/", "https://www.youtube.com/watch?v=" + (32 * (videos[i][0] != '-')), videos[i], videos[i]);
-        system(tmp);
+        int ret = system(tmp);
+        if(ret)
+        {
+            log2file("yt-dlp couldn't download specified video, trying to resolve...");
+            system("pip install yt-dlp -U --break-system-packages");
+            snprintf(tmp, sizeof(tmp), "yt-dlp --cookies-from-browser firefox -r 3000000 -f 137+140 %s%s -P ./%s/", "https://www.youtube.com/watch?v=" + (32 * (videos[i][0] != '-')), videos[i], videos[i]);
+            system(tmp);
+        }
 
         char *videoTitle = YTAPI_Get_Video_Name(videos[i], GOOGLE_API_KEY);
         snprintf(tmp, sizeof(tmp), "Successfully downloaded %s : %s", videos[i], videoTitle);
@@ -137,7 +144,7 @@ int main(int argc, char **argv)
     WORDLIST[1] = (char *[]){"rocket league", "buts", "spacestation", "spin", "rlcs", "exotiik", "zen", "rl ", " rl", "moist esport", "complexity gaming", NULL};
     WORDLIST[2] = (char *[]){"tft", "canbizz", NULL};
     WORDLIST[3] = (char *[]){"valorant", "vct", "vcl", "vctemea", "redbullhomeground", "game changers", "karmine corp gc", "joueuses", "female", "nelo", "filles", "ninou", "ze1sh", "féminine", "shin", "matriix", NULL};
-    WORDLIST[4] = (char *[]){"lol", "league of legends", "div2lol", "emeamasters", "emea masters", "redbull league of its own", "lfl", "lec", "lck", "eu masters", "academy", "karmine corp blue", "movistar riders", "aegis", "bk rog", "eumasters", "ldlc", "vitality bee", "kcb", "hantera", "t1", "faker", "vitality.bee", "cdf", "coupe de france", "botlane", "gold", "eum", "caliste", "saken", NULL};
+    WORDLIST[4] = (char *[]){"lol", "league of legends", "div2lol", "emeamasters", "emea masters", "first stand", "redbull league of its own", "lfl", "lec", "lck", "eu masters", "academy", "karmine corp blue", "movistar riders", "aegis", "bk rog", "eumasters", "ldlc", "vitality bee", "kcb", "hantera", "t1", "faker", "vitality.bee", "cdf", "coupe de france", "botlane", "gold", "eum", "caliste", "saken", NULL};
     WORDLIST[5] = (char *[]){"trackmania", "otaaaq", "bren", NULL};
     WORDLIST[6] = (char *[]){"kurama", NULL};
     WORDLIST[7] = (char *[]){"fncs", NULL};
@@ -169,15 +176,17 @@ int main(int argc, char **argv)
                "\t--dlspeed                        specifies the download speed in bytes/s\n");
         exit(0);
     }
-
+    
     char **tokensInfos = TTV_API_refresh_access_token(DEFAULT_REFRESH_TOKEN, BOT_ID, BOT_SECRET);
+    
 restart:
     current_time_offset = get_utc_offset() * 3600;
-
+    
     char **playlist = getAllFiles(LOCAL_PATH);
+    
+    printf(" %d", size_of_double_array(playlist));
     char *video = playlist[chooseVideo(size_of_double_array(playlist), SEED)];
     mkfifo("/tmp/Karmine/video_fifo", 0666);
-
     char *WantsFFLogs = malloc(strlen("/var/tmp/Karmine/ff.log") * settings[3] + strlen("/dev/null") * (!settings[3]) + 1);
     if (settings[3])
         strcpy(WantsFFLogs, "/var/tmp/Karmine/ff.log");
@@ -189,6 +198,8 @@ restart:
              "-c copy -bufsize 18000k "
              "-f flv rtmp://live.twitch.tv/app/%s > %s 2>&1",
              STREAM_KEY, WantsFFLogs);
+    //OPTIMIZATION CAN BE DONE HERE
+    
 
     char tmp[256];
 
@@ -228,7 +239,7 @@ restart:
             /*------------------------------------HANDLE WEB MONITORING------------------------------------*/
             log2file("web_monitoring: getting self stream infos...");                                      //
             TTV_API_get_stream_info(tokensInfos[0], CHANNEL_NAME, BOT_ID);                                 //
-            FILE *streamInfos = fopen("/var/tmp/Karmine/mntr.data", "r");                                  //
+            FILE *streamInfos = fopen("/tmp/Karmine/mntr.data", "r");                                  //
             char isOnline[8];                                                                              //
             char vwCount[6];                                                                               //
             fgets(isOnline, sizeof(isOnline), streamInfos);                                                //
@@ -236,7 +247,7 @@ restart:
             fgets(tmp, sizeof(tmp), streamInfos);                                                          //
             fgets(vwCount, sizeof(vwCount), streamInfos);                                                  //
             fclose(streamInfos);                                                                           //
-            remove("/var/tmp/Karmine/mntr.data");                                                          //
+            remove("/tmp/Karmine/mntr.data");                                                          //
                                                                                                            //
             streamInfos = fopen("/var/www/html/monitoring.json", "w");                                     //
             cJSON *json = cJSON_CreateObject();                                                            //
@@ -258,8 +269,7 @@ restart:
 
         while (video == nextVideo)
             nextVideo = playlist[chooseVideo(size_of_double_array(playlist), SEED)];
-
-        
+    
         int KarmineToWait = KarmineAPI_timeto(&streamer, time(NULL) + current_time_offset, 1);
         if (KarmineToWait + (int)time(NULL) + current_time_offset <= (int)get_video_duration(nextVideo, LOCAL_PATH) + endtime) // if next match starts before next video ends (with one more minute)
         {
