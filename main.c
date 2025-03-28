@@ -32,16 +32,15 @@ void *download_videos(void *bool)
         snprintf(tmp, sizeof(tmp), "Downloading %s...", videos[i]);
         log2file(tmp);
 
-        snprintf(tmp, sizeof(tmp), "mkdir ./%s", videos[i]);
-        system(tmp);
+        system("mkdir /tmp/Karmine/ytdlp");
 
-        snprintf(tmp, sizeof(tmp), "yt-dlp --cookies-from-browser firefox -r 3000000 -f 299+140 %s%s -P ./%s/", "https://www.youtube.com/watch?v=" + (32 * (videos[i][0] != '-')), videos[i], videos[i]);
+        snprintf(tmp, sizeof(tmp), "yt-dlp --cookies-from-browser firefox -r 3000000 -f 299+140 %s%s -P /tmp/Karmine/ytdlp/", "https://www.youtube.com/watch?v=" + (32 * (videos[i][0] != '-')), videos[i]);
         int ret = system(tmp);
         if(ret)
         {
             log2file("yt-dlp couldn't download specified video, trying to resolve...");
             system("pip install yt-dlp -U --break-system-packages");
-            snprintf(tmp, sizeof(tmp), "yt-dlp --cookies-from-browser firefox -r 3000000 -f 137+140 %s%s -P ./%s/", "https://www.youtube.com/watch?v=" + (32 * (videos[i][0] != '-')), videos[i], videos[i]);
+            snprintf(tmp, sizeof(tmp), "yt-dlp --cookies-from-browser firefox -r 3000000 -f 137+140 %s%s -P /tmp/Karmine/ytdlp/", "https://www.youtube.com/watch?v=" + (32 * (videos[i][0] != '-')), videos[i]);
             system(tmp);
         }
 
@@ -52,11 +51,11 @@ void *download_videos(void *bool)
         char videotmp[strlen(videoTitle) + 5];
         strcpy(videotmp, videoTitle);
         strcat(videotmp, ".mp4");
+        free(videoTitle);
 
-        snprintf(tmp, sizeof(tmp), "mv ./%s/* \"./%s\"", videos[i], videotmp);
+        snprintf(tmp, sizeof(tmp), "mv /tmp/Karmine/ytdlp/* \"/tmp/Karmine/%s\"", videotmp);
         system(tmp);
-        snprintf(tmp, sizeof(tmp), "rmdir ./%s", videos[i]);
-        system(tmp);
+        system("rm -r /tmp/Karmine/ytdlp");
 
         char *fullLink = malloc(32 + strlen(videos[i]) + 1);
         strcpy(fullLink, "https://www.youtube.com/watch?v=");
@@ -64,7 +63,9 @@ void *download_videos(void *bool)
 
         snprintf(tmp, sizeof(tmp), "writing metadata to %s", videotmp);
         log2file(tmp);
-        write_metadata(videotmp, fullLink);
+
+        snprintf(tmp, sizeof(tmp), "/tmp/Karmine/%s", videotmp);
+        write_metadata(tmp, fullLink);
         free(fullLink);
         char moov[512];
         snprintf(moov, sizeof(moov), "mv /tmp/Karmine/30784230304235.mp4 \"./%s%s\"", LOCAL_PATH, videotmp);
@@ -79,6 +80,7 @@ void *download_videos(void *bool)
 
     return bool;
 }
+
 
 void *ffwrite(void *data)
 {
@@ -95,13 +97,13 @@ void *ffwrite(void *data)
     char buffer[4096];
     size_t bytesRead;
     while ((bytesRead = fread(buffer, 1, sizeof(buffer), ffmpeg)) > 0)
-    {
         write(*fifo_fd, buffer, bytesRead);
-    }
-    pclose(ffmpeg);
+    
 
+    pclose(ffmpeg);
     return NULL;
 }
+
 
 void handleArgs(char **argv, int argc, unsigned long *settings, char **knownArgs)
 {
@@ -126,10 +128,13 @@ void handleArgs(char **argv, int argc, unsigned long *settings, char **knownArgs
     }
 }
 
+
 void intHandler()
 {
     printf("signal\n");
 }
+
+
 
 int main(int argc, char **argv)
 {
@@ -183,11 +188,10 @@ restart:
     current_time_offset = get_utc_offset() * 3600;
     
     char **playlist = getAllFiles(LOCAL_PATH);
-    
-    printf(" %d", size_of_double_array(playlist));
-    char *video = playlist[chooseVideo(size_of_double_array(playlist), SEED)];
-    mkfifo("/tmp/Karmine/video_fifo", 0666);
     char *WantsFFLogs = malloc(strlen("/var/tmp/Karmine/ff.log") * settings[3] + strlen("/dev/null") * (!settings[3]) + 1);
+    char *video = playlist[chooseVideo(size_of_double_array(playlist), SEED)];
+
+    mkfifo("/tmp/Karmine/video_fifo", 0666);
     if (settings[3])
         strcpy(WantsFFLogs, "/var/tmp/Karmine/ff.log");
     else
@@ -199,9 +203,9 @@ restart:
              "-f flv rtmp://live.twitch.tv/app/%s > %s 2>&1",
              STREAM_KEY, WantsFFLogs);
     //OPTIMIZATION CAN BE DONE HERE
-    
+    free(WantsFFLogs);
 
-    char tmp[256];
+    char tmp[512];
 
     long timestart = (long)time(NULL) + current_time_offset;
     char *nextVideo = video;
@@ -211,6 +215,7 @@ restart:
 
     int fifo_fd = open("/tmp/Karmine/video_fifo", O_WRONLY);
 
+    log2file("checking for yt-dlp update...");
     system("pip install yt-dlp -U --break-system-packages");
     int isDownloaded = 0;
     if (get_undownloaded_videos(LOCAL_PATH, GOOGLE_API_KEY))
@@ -223,11 +228,27 @@ restart:
         ffdata data = {video, &fifo_fd};
         pthread_t ffThr;
         pthread_create(&ffThr, NULL, ffwrite, (void *)&data);
-        tokensInfos = TTV_API_refresh_access_token(tokensInfos[1], BOT_ID, BOT_SECRET);
-        TTV_API_update_stream_info(TTV_API_get_streamer_id(tokensInfos[0], CHANNEL_NAME, BOT_ID), tokensInfos[0], CATEGORY_IDS[getGame(video, WORDLIST)], curl_filename(video), BOT_ID);
+            {
+            char **tokentmp = tokensInfos;
+            tokensInfos = TTV_API_refresh_access_token(tokensInfos[1], BOT_ID, BOT_SECRET);
+            free(tokentmp);
+            }
+        
+        char *streamer_id = TTV_API_get_streamer_id(tokensInfos[0], CHANNEL_NAME, BOT_ID);
+        char *curl_name = curl_filename(video);
+        if (curl_name == NULL)
+            TTV_API_update_stream_info(streamer_id, tokensInfos[0], CATEGORY_IDS[getGame(video, WORDLIST)], video, BOT_ID);
+        else
+        {
+            TTV_API_update_stream_info(streamer_id, tokensInfos[0], CATEGORY_IDS[getGame(video, WORDLIST)], curl_name, BOT_ID);
+            free(curl_name);
+        }
+            free(streamer_id);
+
         if (isDownloaded)
         {
             isDownloaded = 0;
+            recur_free(playlist);
             playlist = getAllFiles(LOCAL_PATH);
         }
         int endtime = get_video_duration(video, LOCAL_PATH) + (int)time(NULL) + current_time_offset;
@@ -280,7 +301,9 @@ restart:
 
             snprintf(tmp, sizeof(tmp), "attempting to raid %s...", streamer);
             log2file(tmp);
-            char *raidValue = TTV_API_raid(tokensInfos[0], TTV_API_get_streamer_id(tokensInfos[0], CHANNEL_NAME, BOT_ID), TTV_API_get_streamer_id(tokensInfos[0], streamer, BOT_ID), BOT_ID);
+            streamer_id = TTV_API_get_streamer_id(tokensInfos[0], CHANNEL_NAME, BOT_ID);
+            char *raidValue = TTV_API_raid(tokensInfos[0], streamer_id, TTV_API_get_streamer_id(tokensInfos[0], streamer, BOT_ID), BOT_ID);
+            free(streamer_id);
 
             if (raidValue)
                 snprintf(tmp, sizeof(tmp), "Failed to raid %s: %s", streamer, raidValue);
@@ -303,9 +326,9 @@ restart:
 
             snprintf(tmp, sizeof(tmp), "Waiting %02d:%02d:%02d until next match, estimated next loop starts at %02d:%02d:%02d...",
                      (KarmineToWait / 3600) % 24, (KarmineToWait / 60) % 60, KarmineToWait % 60,
-                     ((KarmineToWait + (int)time(NULL) + current_time_offset) / 3600) % 24, ((KarmineToWait + (int)time(NULL) + current_time_offset) / 60) % 60, (KarmineToWait + (int)time(NULL) + current_time_offset) % 60);
+                     ((KarmineToWait + (int)time(NULL)) / 3600) % 24, ((KarmineToWait + (int)time(NULL)) / 60) % 60, (KarmineToWait + (int)time(NULL)) % 60);
             log2file(tmp);
-            sleep(KarmineToWait + 60); // sleep until match ending
+            sleep(KarmineToWait + 10);
             
 
             KarmineToWait = KarmineAPI_timeto(&streamer, time(NULL) + current_time_offset, 1);
@@ -376,6 +399,7 @@ restart:
                 - pause                 pauses current video until "play"
                 - play                  plays the current paued video
                 - select video          select next video to play, if current video is paused, restart on this one
+                - get viewers           returns the current viewers number
 
             - idées chatbot :
                 - !random -> donne une phrase random (#KCWIN, fuck Karnage, prochain match dans hh:mm:ss, ...)
@@ -393,6 +417,9 @@ restart:
         utiliser une db pour associer des infos aux vidéos
             - le jeux qui va avec
             - potentiellement qui a gagné (?)
+
+
+        créer une API pour le monitoring par exemple
 
     implémenter les arguments correctement
 */

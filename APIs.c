@@ -319,10 +319,10 @@ void TTV_API_update_stream_info(char *streamerId, char *access, int gameId, char
     strcpy(titleRediff, title);
     titleRediff[strlen(title) - 4] = '\0';
     strcat(titleRediff, " - [REDIFFUSION]");
-    snprintf(tmp, sizeof(tmp), "curl -X PATCH 'https://api.twitch.tv/helix/channels?broadcaster_id=%s' "
-    "-H 'Authorization: Bearer %s' -H 'Client-Id: %s' -H 'Content-Type: application/json' "
-    "--data-raw '{\"game_id\":\"%d\", \"title\":\"%s\", \"broadcaster_language\":\"fr\",  \"tags\":[\"KCORP\", \"Rediffusion\", \"247Stream\", \"botstream\", \"Français\", \"KarmineCorp\"]}' -o /tmp/Karmine/response.json", 
-    streamerId, access, bot_id, gameId, titleRediff);
+    snprintf(tmp, sizeof(tmp), "    curl -X PATCH 'https://api.twitch.tv/helix/channels?broadcaster_id=%s' "
+                                "-H 'Authorization: Bearer %s' -H 'Client-Id: %s' -H 'Content-Type: application/json' "
+                                "--data-raw '{\"game_id\":\"%d\", \"title\":\"%s\", \"broadcaster_language\":\"fr\",  \"tags\":[\"KCORP\", \"Rediffusion\", \"247Stream\", \"botstream\", \"Français\", \"KarmineCorp\"]}' -o /tmp/Karmine/response.json", 
+                                streamerId, access, bot_id, gameId, titleRediff);
     system(tmp);
 
     FILE *fichier = fopen("/tmp/Karmine/response.json", "r");

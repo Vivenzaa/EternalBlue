@@ -84,12 +84,11 @@ char *curl_filename(char *ptr)
             tmp[i + j] = ptr[i];
         }
         tmp[strlen(ptr) + (apNb * 3)] = '\0';
-        char *aaa = malloc(strlen(tmp) + 1);
-        strcpy(aaa, tmp);
-        printf("%s\n", aaa);
-        return aaa;
+        char *final = malloc(strlen(tmp) + 1);
+        strcpy(final, tmp);
+        return final;
     }
-    return ptr;
+    return NULL;
 }
 
 
