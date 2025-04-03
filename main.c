@@ -188,7 +188,7 @@ restart:
     current_time_offset = get_utc_offset() * 3600;
     
     char **playlist = getAllFiles(LOCAL_PATH);
-    char *WantsFFLogs = malloc(strlen("/var/tmp/Karmine/ff.log") * settings[3] + strlen("/dev/null") * (!settings[3]) + 1);
+    char *WantsFFLogs = malloc(strlen("/var/tmp/Karmine/ff.log") * settings[3]      +       strlen("/dev/null") * (!settings[3]) + 1);
     char *video = playlist[chooseVideo(size_of_double_array(playlist), SEED)];
 
     mkfifo("/tmp/Karmine/video_fifo", 0666);
@@ -252,7 +252,7 @@ restart:
             playlist = getAllFiles(LOCAL_PATH);
         }
         int endtime = get_video_duration(video, LOCAL_PATH) + (int)time(NULL) + current_time_offset;
-        snprintf(tmp, sizeof(tmp), "Now playing %s, estimated end time : %02d:%02d:%02d", video, ((endtime + 3600) / 3600) % 24, (endtime / 60) % 60, endtime % 60);
+        snprintf(tmp, sizeof(tmp), "Now playing %s, estimated end time : %02d:%02d:%02d", video, (endtime / 3600) % 24, (endtime / 60) % 60, endtime % 60);
         log2file(tmp);
 
         if (settings[2])
@@ -337,8 +337,8 @@ restart:
             if (nextVidDuration > KarmineToWait)
             {
                 snprintf(tmp, sizeof(tmp), "Choosing not the restart the stream right now, next match starts at %02d:%02d:%02d while next video would end at %02d:%02d:%02d",
-                        ((KarmineToWait + (int)time(NULL) + current_time_offset) / 3600) % 24, ((KarmineToWait + (int)time(NULL) + current_time_offset) / 60) % 60, (KarmineToWait + (int)time(NULL) + current_time_offset) % 60,
-                        ((nextVidDuration + (int)time(NULL) + current_time_offset) / 3600) % 24, ((nextVidDuration + (int)time(NULL) + current_time_offset) / 60) % 60, (nextVidDuration + (int)time(NULL) + current_time_offset) % 60);
+                        ((KarmineToWait + (int)time(NULL) + current_time_offset) / 3600) % 24, ((KarmineToWait + (int)time(NULL)) / 60) % 60, (KarmineToWait + (int)time(NULL)) % 60,
+                        ((nextVidDuration + (int)time(NULL) + current_time_offset) / 3600) % 24, ((nextVidDuration + (int)time(NULL)) / 60) % 60, (nextVidDuration + (int)time(NULL)) % 60);
                 log2file(tmp);
                 goto wait_again;
             }
@@ -357,40 +357,46 @@ restart:
     sleep(10);
     goto restart;
 
-    printf("alors ça, c'est pas normal DU TOUT\n");
     return 0;
 }
 
-/*
-    migrer le web_monitoring vers du serveur HTTP sans graphismes (peut être faire ça avec le serveur custom ?)
 
-    online.c (full http):
-        - execution normale sous js avec redirection vers c pour garder des logs et gérer les requepetes plus tard
-        - assurer la bonne connection entre js et online
-        - intégrer cJSON
-        - ajouter un descripteur aux requêtes pour savoir ce qui a été trigger
-        - créer les fonctions qui vont avec
-        - créer le segment partagé entre les 2 programmes (le plus tard possible aled)
-    OU ALORS je casse tout pour en faire un server HTTP et me passer du JS directement
+
+
+
+
+/*
+    DONNER PLUS D'IMPORTANCE AU SERVEUR HTTP CUSTOM :
+        - gérer l'arborescence (url /, /webhook, /monitoring, /radio(?) etc)
+            = encapsuler le /webhook
+                - créer un fichier server.c qui va gérer les fonctions de base du serveur
+                - créer un fichier chatbot.c qui va se greffer au server.c
+                - cahier des charges server.c :
+                    - doit etre super facilement modulable (pouvoir ajouter des urls facilement)
+                    - doit comporter une API à clé pour les fonctions sensibles (controle du chatbot/main et de la radio)
+                    - pour chaque URL supporté, collecter les informations, si applicable et necessaire, puis appeler une fonction/programme qui fait le taff à la place
+
+        - migrer le web_monitoring vers du serveur HTTP sans graphismes
+        - cleanup/restructurer le code -> faire passer le code par des fonctions pour la lisibilité
+        - main.c et chatbot.c sont INDEPENDANTS (useless de s'emmerder a faire des ponts alors qu'on peut juste faire --enable-chatbot et lancer le code en side)
+
 
 
     // quand j'ai vla le temps pck bon blc : ligne 184 à fix pour pas avoir à utiliser de fichier temporaire intermediaire
     trouver une putain de vidéo de transition merde
     revoir le système de logs en vue du changement vav des arguments de lancement
-    utiliser des sockets (ou autre ?) pour échanger avec le server.js (potentiellement se débarraser sur js plus tard ? )
+    globalement finir l'intégrations des arguments de lancement
 
     POUR LES PREDICTIONS :
         - on fait une prédiction à chaque début de match sur qui va gagner, et on fetch le resultat dans karmine api pour avoir le résultat de la prédiction
 
 
     changer get_app_token pour seulement renvoyer le token, il sera simplement refresh à tous les restart donc blc
-    passer web-monitoring sur le server c
     mettre en place une console par fichier externe (ou programme supplémentaire avec liaison mémoire ?) pour piloter un peu ce qu'il se passe malgré nohup (controler via commandes stream ?)
     changer les response.json par des fichiers à nom unique (pour éviter les potentiels conflits)
 
     un jour :
         coder le terrifiant chatbot twitch
-            - commencer par faire communiquer 2 programmes ensemble de façon efficace
             - IMPORTANT : if (message == Cheap viewers on *)    perma_ban(user);
             - faire en sorte de pouvoir taper des commandes dans le chat pour commander le bot (verifier les user_id pour voir si t'es autorisé à rentrer la commande)
                 - shutdown              shutdown after current video ends
