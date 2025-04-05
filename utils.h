@@ -7,7 +7,8 @@ typedef struct ffdata
     int *fifo;
 }ffdata;
 
-void log2file(char *toWrite);
+void itos(int N, char *str);
+void log4c(char *base, ...);
 char get_utc_offset();
 long SizeOfFile(char *path);
 char *curl_filename(char *ptr);

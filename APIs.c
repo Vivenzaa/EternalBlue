@@ -8,18 +8,19 @@
 
 int KarmineAPI_timeto(char **streamer, int current_time, char wantsStart)
 {
-    log2file("Fetching API datas of La Prestigieuse...");
+    log4c("Fetching API datas of La Prestigieuse...");
     system("curl -X GET https://api2.kametotv.fr/karmine/group_a -o /var/tmp/Karmine/api.json");
     FILE *fichier = fopen("/var/tmp/Karmine/api.json", "r");
     char tmp[SizeOfFile("/var/tmp/Karmine/api.json")];
     fread(tmp, 1, sizeof(tmp), fichier); 
+    fclose(fichier);
     cJSON *useless = cJSON_Parse(tmp); 
     if (useless == NULL) { 
         const char *error_ptr = cJSON_GetErrorPtr(); 
         if (error_ptr != NULL) { 
-            log2file("Couldn't fetch Karmine's API data");
+            log4c("Couldn't fetch Karmine's API data");
         }
-        log2file("json file is NULL, aborting...");
+        log4c("json file is NULL, aborting...");
         *streamer = NULL;
         cJSON_Delete(useless);
         return 0;
@@ -32,7 +33,7 @@ int KarmineAPI_timeto(char **streamer, int current_time, char wantsStart)
         cJSON *upcomming = cJSON_GetArrayItem(json, i);
         if(upcomming == NULL)
         {
-            log2file("upcomming is NULL, aborting...");
+            log4c("upcomming is NULL, aborting...");
             *streamer = NULL;
             cJSON_Delete(useless);
             return 0;
@@ -96,7 +97,7 @@ char YTAPI_Get_Recent_Videos(unsigned int max, char *google_api_key)          //
         if (json == NULL) { 
             const char *error_ptr = cJSON_GetErrorPtr(); 
             if (error_ptr != NULL) { 
-                log2file((char *)error_ptr); 
+                log4c((char *)error_ptr); 
                 return -1;
             } 
             cJSON_Delete(json); 
@@ -109,7 +110,7 @@ char YTAPI_Get_Recent_Videos(unsigned int max, char *google_api_key)          //
         {
             cJSON *errorstring = cJSON_GetObjectItemCaseSensitive(errorArray, "reason");
             snprintf(tmp, sizeof(tmp), "YTAPI_Get_Recent_Videos: Request failed: %s", errorstring->valuestring);
-            log2file(tmp);
+            log4c(tmp);
             cJSON_Delete(json);
             return -1;
         }
@@ -130,7 +131,7 @@ char YTAPI_Get_Recent_Videos(unsigned int max, char *google_api_key)          //
     }
     else
     {
-        log2file("requested video number exceeded 20, assuming there was a problem with a video...");
+        log4c("requested video number exceeded 20, assuming there was a problem with a video...");
         return -1;
     }
         
@@ -159,7 +160,7 @@ char *YTAPI_Get_Video_Name(char *videoId, char *google_api_key)
     if (json == NULL) { 
         const char *error_ptr = cJSON_GetErrorPtr(); 
         if (error_ptr != NULL) { 
-            log2file((char *)error_ptr); 
+            log4c((char *)error_ptr); 
             return NULL;
         } 
         cJSON_Delete(json); 
@@ -169,7 +170,7 @@ char *YTAPI_Get_Video_Name(char *videoId, char *google_api_key)
     if (error)
     {
         snprintf(tmp, sizeof(tmp), "YTAPI_Get_Video_Name: Request failed: %s", error->valuestring);
-        log2file(tmp);
+        log4c(tmp);
         cJSON_Delete(json);
         return NULL;
     }
@@ -196,13 +197,13 @@ void TTV_API_revoke_access_token(char *access, char *bot_id)
     system(tmp);
 
     snprintf(tmp, sizeof(tmp), "Revoked token %s", access);
-    log2file(tmp);
+    log4c(tmp);
 }
 
 
 char **TTV_API_refresh_access_token(char *refresh_token, char *bot_id, char *bot_secret)
 {
-    log2file("refreshing TwitchAPI tokens...");
+    log4c("refreshing TwitchAPI tokens...");
     {
     char tmp[316];      // request len(184) + refresh token len(51) + BOT_ID len(31) + BOT_SECRET len(31) + \0
     snprintf(tmp, sizeof(tmp), 
@@ -220,7 +221,7 @@ char **TTV_API_refresh_access_token(char *refresh_token, char *bot_id, char *bot
     if (json == NULL) { 
         const char *error_ptr = cJSON_GetErrorPtr(); 
         if (error_ptr != NULL)
-            log2file((char *)error_ptr); 
+            log4c((char *)error_ptr); 
         
         fclose(fichier);
         cJSON_Delete(json); 
@@ -230,7 +231,7 @@ char **TTV_API_refresh_access_token(char *refresh_token, char *bot_id, char *bot
     if (error)
     {
         snprintf(tmp, sizeof(tmp), "request failed with code %d", error->valueint);
-        log2file(tmp);
+        log4c(tmp);
         return 0;
     }
     cJSON *access = cJSON_GetObjectItemCaseSensitive(json, "access_token");
@@ -271,7 +272,7 @@ char TTV_API_get_stream_info(char *access, char *channel_name, char *bot_id)
     if (json == NULL) { 
         const char *error_ptr = cJSON_GetErrorPtr(); 
         if (error_ptr != NULL) { 
-            log2file((char *)error_ptr); 
+            log4c((char *)error_ptr); 
             return -1;
         } 
         cJSON_Delete(json); 
@@ -281,7 +282,7 @@ char TTV_API_get_stream_info(char *access, char *channel_name, char *bot_id)
     if (error)
     {
         snprintf(tmp, sizeof(tmp), "Request failed: %s", error->valuestring);
-        log2file(tmp);
+        log4c(tmp);
         cJSON_Delete(json);
         return 0;
     }
@@ -334,12 +335,12 @@ void TTV_API_update_stream_info(char *streamerId, char *access, int gameId, char
     if (error)
     {
         snprintf(tmp, sizeof(tmp), "Request failed to update stream informations: %d: %s", error->valueint, error->valuestring);
-        log2file(tmp);
+        log4c(tmp);
     }
     else
     {
         snprintf(tmp, sizeof(tmp), "Updated stream infos to game_id: %d and title %s", gameId, titleRediff);
-        log2file(tmp);
+        log4c(tmp);
     }
     cJSON_Delete(json);
 }
@@ -422,7 +423,7 @@ char *TTV_API_get_app_token(char *bot_id, char *bot_secret)
     if (json == NULL) { 
         const char *error_ptr = cJSON_GetErrorPtr(); 
         if (error_ptr != NULL) { 
-            log2file((char *)error_ptr); 
+            log4c((char *)error_ptr); 
             return NULL;
         } 
         cJSON_Delete(json); 
@@ -433,7 +434,7 @@ char *TTV_API_get_app_token(char *bot_id, char *bot_secret)
     if (error)
     {
         snprintf(tmp, sizeof(tmp), "Request failed: %s", error->valuestring);
-        log2file(tmp);
+        log4c(tmp);
         cJSON_Delete(json);
         return NULL;
     }

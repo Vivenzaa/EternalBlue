@@ -9,19 +9,111 @@
 #include <time.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <stdarg.h>
 
 
-void log2file(char *toWrite)
+void itos(int N, char *str) 
 {
-    time_t current_time;
-    struct tm * time_info;
+    int i = 0;
+    int sign = N;
+
+    if (N < 0)
+        N = -N;
+
+    while (N > 0) 
+    {
+        str[i++] = N % 10 + '0';
+      	N /= 10;
+    } 
+
+    if (sign < 0) 
+        str[i++] = '-';
+    
+    str[i] = '\0';
+
+    for (int j = 0, k = i - 1; j < k; j++, k--) 
+    {
+        char temp = str[j];
+        str[j] = str[k];
+        str[k] = temp;
+    }
+}
+
+
+void log4c(char *base, ...)
+{
+    char *prev = base;
+    char *current = strchr(base, '%');
+    char *word = NULL;
+    char *payload_str = calloc(1, 1);
+    int payload_len = 1;
     char timeString[20];        // 18 is enough for 64bit systems but somehow my 32bit server needs 20 ??
+    
+    time_t current_time;
+    va_list list;
+    struct tm * time_info;
+    va_start(list, base);
+    
+    while(current)
+    {
+        word = malloc(current - prev + 1);
+        char flag[3];
+
+        strncpy(word, prev, current - prev);
+        strncpy(flag, current, 2);
+
+        word[current - prev] = '\0';
+        flag[2] = '\0';
+
+        payload_len += strlen(word);
+        payload_str = realloc(payload_str, payload_len + 1);
+        strcat(payload_str, word);
+
+
+        switch(flag[1])
+        {
+            case 's':
+                char *buffer = va_arg(list, char *);
+                payload_len += strlen(buffer);
+                payload_str = realloc(payload_str, payload_len + 1);
+                strcat(payload_str, buffer);
+                break;
+
+            case 'd':
+                char buffd[11];    //max int -> 2,147,483,647 and max uint has 10 characters too
+                itos(va_arg(list, int), buffd);
+                payload_len += strlen(buffd);
+                payload_str = realloc(payload_str, payload_len + 1);
+                strcat(payload_str, buffd);
+                break;
+            
+            default:
+                printf("error -->%s<-- here, this flag is not supported...\n", flag);
+                break;
+            // case 0 -> expands to 02d ?
+        }
+
+        prev = current + strlen(flag);
+        current = strchr(prev, '%');
+        free(word);
+    }
+
+    if (prev != base + strlen(base))
+    {
+        payload_len += strlen(prev);
+        payload_str = realloc(payload_str, payload_len + 1);
+        strcat(payload_str, prev);
+    }
+
     time(&current_time);
     time_info = localtime(&current_time);
     strftime(timeString, sizeof(timeString), "%x %H:%M:%S", time_info);
 
     FILE *fichier = fopen("/var/tmp/Karmine/console.log", "a");
-    fprintf(fichier, "[%s] %s\n", timeString, toWrite);
+    fprintf(fichier, "[%s] %s\n", timeString, payload_str);
+    
+    va_end(list);
+    free(payload_str);
     fclose(fichier);
 }
 
@@ -111,7 +203,7 @@ int getGame(char *title, char ***wordlist)
             {
                 char tmp[128];
                 snprintf(tmp, sizeof(tmp), "found game: %s in title %s", wordlist[i][0], title);
-                log2file(tmp);
+                log4c(tmp);
                 return i;
             }
             j++;
@@ -121,14 +213,14 @@ int getGame(char *title, char ***wordlist)
     }
     char tmp[256];
     snprintf(tmp, sizeof(tmp), "Couln't find game for title %s, defaulting to \"Special Event\"...", title);        // try getting game from YT videos's data
-    log2file(tmp);
+    log4c(tmp);
     return 0;
 }
 
 
 char *get_metadata(char *filename)
 {
-    {char tmp[256]; snprintf(tmp, sizeof(tmp), "fetching metadatas of %s...", filename); log2file(tmp);}
+    {char tmp[256]; snprintf(tmp, sizeof(tmp), "fetching metadatas of %s...", filename); log4c(tmp);}
     AVFormatContext *fmt_ctx = NULL;
     avformat_open_input(&fmt_ctx, filename, NULL, NULL);
     AVDictionaryEntry *tag = NULL;
@@ -141,7 +233,7 @@ char *get_metadata(char *filename)
             return toReturn;
         }
     }
-    {char tmp[256]; snprintf(tmp, sizeof(tmp), "couldn't get metadatas of %s...", filename); log2file(tmp);}
+    {char tmp[256]; snprintf(tmp, sizeof(tmp), "couldn't get metadatas of %s...", filename); log4c(tmp);}
     return 0;
 }
 
@@ -153,17 +245,17 @@ void write_metadata(char *filename, char *toWrite)
     AVFormatContext *out_ctx = NULL;
 
     if (avformat_open_input(&fmt_ctx, filename, NULL, NULL) < 0) {
-        log2file("Erreur : Impossible d'ouvrir le fichier dans lequel écrire les métadonnées");
+        log4c("Erreur : Impossible d'ouvrir le fichier dans lequel écrire les métadonnées");
         exit(1);
     }
 
-    log2file("write_metadata: writing metadata on file...");
+    log4c("write_metadata: writing metadata on file...");
     avformat_alloc_output_context2(&out_ctx, NULL, NULL, output);
     for (unsigned int i = 0; i < fmt_ctx->nb_streams; i++) {
         AVStream *in_stream = fmt_ctx->streams[i];
         AVStream *out_stream = avformat_new_stream(out_ctx, NULL);
         if (!out_stream) {
-            log2file("Erreur : Impossible de copier le flux");
+            log4c("Erreur : Impossible de copier le flux");
             avformat_close_input(&fmt_ctx);
             avformat_free_context(out_ctx);
             exit(1);
@@ -176,7 +268,7 @@ void write_metadata(char *filename, char *toWrite)
 
     if (!(out_ctx->oformat->flags & AVFMT_NOFILE)) {
         if (avio_open(&out_ctx->pb, output, AVIO_FLAG_WRITE) < 0) {
-            log2file("write_metadata : Impossible d'ouvrir le fichier de sortie");
+            log4c("write_metadata : Impossible d'ouvrir le fichier de sortie");
             avformat_close_input(&fmt_ctx);
             avformat_free_context(out_ctx);
             exit(1);
@@ -185,7 +277,7 @@ void write_metadata(char *filename, char *toWrite)
 
 
     if (avformat_write_header(out_ctx, NULL) < 0) {
-        log2file("write_metadata : Impossible d'écrire l'en-tête");
+        log4c("write_metadata : Impossible d'écrire l'en-tête");
         avformat_close_input(&fmt_ctx);
         avformat_free_context(out_ctx);
         exit(1);
@@ -203,7 +295,7 @@ void write_metadata(char *filename, char *toWrite)
         pkt.pos = -1;
 
         if (av_interleaved_write_frame(out_ctx, &pkt) < 0) {
-            log2file("write_metadata : Impossible d'écrire un paquet");
+            log4c("write_metadata : Impossible d'écrire un paquet");
             break;
         }
         av_packet_unref(&pkt);
@@ -219,7 +311,7 @@ void write_metadata(char *filename, char *toWrite)
     avformat_close_input(&fmt_ctx);
 
     remove(filename);
-    log2file("write_metadata: successfully added metadata to file...");
+    log4c("write_metadata: successfully added metadata to file...");
 }
 
 
@@ -235,14 +327,14 @@ char **getAllFiles(char *local_path)
         if (strlen(de->d_name) <= 3)     continue;
         char *line = malloc(strlen(de->d_name) + 1);
         if (!line) {
-            log2file("getAllFiles : allocation mémoire échouée");
+            log4c("getAllFiles : allocation mémoire échouée");
             exit(EXIT_FAILURE);
         }
         strcpy(line, de->d_name);
 
         char **temp = realloc(lines, sizeof(char *) * (count + 1));
         if (!temp) {
-            log2file("getAllFiles : allocation mémoire échouée");
+            log4c("getAllFiles : allocation mémoire échouée");
             exit(EXIT_FAILURE);
         }
         lines = temp;
@@ -252,7 +344,7 @@ char **getAllFiles(char *local_path)
     
     char **temp = realloc(lines, sizeof(char *) * (count + 1));
     if (!temp) {
-        log2file("getAllFiles : allocation mémoire échouée");
+        log4c("getAllFiles : allocation mémoire échouée");
         exit(EXIT_FAILURE);
     }
     lines = temp;
@@ -273,7 +365,7 @@ char **file_lines(char *filename) {
     while (fgets(buffer, 256, fichier)) {
         char *line = malloc(strlen(buffer) + 1);
         if (!line) {
-            log2file("file_lines : allocation mémoire échouée");
+            log4c("file_lines : allocation mémoire échouée");
             exit(EXIT_FAILURE);
         }
         strcpy(line, buffer);
@@ -281,7 +373,7 @@ char **file_lines(char *filename) {
 
         char **temp = realloc(lines, sizeof(char *) * (count + 1));
         if (!temp) {
-            log2file("file_lines : allocation mémoire échouée");
+            log4c("file_lines : allocation mémoire échouée");
             exit(EXIT_FAILURE);
         }
         lines = temp;
@@ -291,7 +383,7 @@ char **file_lines(char *filename) {
     
     char **temp = realloc(lines, sizeof(char *) * (count + 1));
     if (!temp) {
-        log2file("file_lines : allocation mémoire échouée");
+        log4c("file_lines : allocation mémoire échouée");
         exit(EXIT_FAILURE);
     }
     lines = temp;
@@ -337,7 +429,7 @@ long convert_to_timestamp(char *datetime) {     // converts YYYY-MM-DDThh:mm:ss.
     if (timestamp == -1) {
         char tmp[256];
         snprintf(tmp, sizeof(tmp), "convert_to_timestamp : Conversion en timestamp échouée. str given : %s, after processing : %s", datetime, temp);
-        log2file(tmp);
+        log4c(tmp);
         return -1;
     }
 
@@ -347,10 +439,10 @@ long convert_to_timestamp(char *datetime) {     // converts YYYY-MM-DDThh:mm:ss.
 
 void *cmdRunInThread(void *str)
 {
-    log2file("launching main ffmpeg");
+    log4c("launching main ffmpeg");
     const char *cmd = (const char *)str;
     system(cmd);
-    log2file("main ffmpeg has ended");
+    log4c("main ffmpeg has ended");
     return NULL;
 }
 
@@ -417,12 +509,12 @@ int get_undownloaded_videos(char *local_path, char *google_api_key)
     free(fullLink);
 
     int i = 1;
-    log2file("get_undownloaded_videos: fetching most recent videos...");
+    log4c("get_undownloaded_videos: fetching most recent videos...");
     while (i < 9999)
     {
         if (YTAPI_Get_Recent_Videos(i, google_api_key) != 0)
         {
-            log2file("Couldn't get url list, aborting download...");
+            log4c("Couldn't get url list, aborting download...");
             return 0;
         }
         FILE *tmpVids = fopen("/tmp/Karmine/recentVids", "r");
@@ -454,7 +546,7 @@ void recur_free(char **tab)
     {
         if (tab[i] == NULL)
             break;
-        free(tab[i]);// log2file for free() ? 
+        free(tab[i]);
     }  
     free(tab);
 }
