@@ -241,7 +241,7 @@ restart:
             TTV_API_update_stream_info(streamer_id, tokensInfos[0], CATEGORY_IDS[getGame(video, WORDLIST)], curl_name, BOT_ID);
             free(curl_name);
         }
-            free(streamer_id);
+        free(streamer_id);
 
         if (isDownloaded)
         {

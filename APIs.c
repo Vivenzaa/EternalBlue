@@ -109,8 +109,7 @@ char YTAPI_Get_Recent_Videos(unsigned int max, char *google_api_key)          //
         if (errorArray)
         {
             cJSON *errorstring = cJSON_GetObjectItemCaseSensitive(errorArray, "reason");
-            snprintf(tmp, sizeof(tmp), "YTAPI_Get_Recent_Videos: Request failed: %s", errorstring->valuestring);
-            log4c(tmp);
+            log4c("YTAPI_Get_Recent_Videos: Request failed: %s", errorstring->valuestring);
             cJSON_Delete(json);
             return -1;
         }
@@ -140,7 +139,7 @@ char YTAPI_Get_Recent_Videos(unsigned int max, char *google_api_key)          //
 }
 
 
-char *YTAPI_Get_Video_Name(char *videoId, char *google_api_key)
+char *YTAPI_Get_Video_Name(char * restrict videoId, char * restrict google_api_key)
 {
     {
     char tmp[165];      // request len(95) + google api key len(40) + video id len(11) + \0
@@ -169,8 +168,7 @@ char *YTAPI_Get_Video_Name(char *videoId, char *google_api_key)
     cJSON *error = cJSON_GetObjectItemCaseSensitive(json, "error");
     if (error)
     {
-        snprintf(tmp, sizeof(tmp), "YTAPI_Get_Video_Name: Request failed: %s", error->valuestring);
-        log4c(tmp);
+        log4c("YTAPI_Get_Video_Name: Request failed: %s", error->valuestring);
         cJSON_Delete(json);
         return NULL;
     }
@@ -188,7 +186,7 @@ char *YTAPI_Get_Video_Name(char *videoId, char *google_api_key)
 }
 
 
-void TTV_API_revoke_access_token(char *access, char *bot_id)
+void TTV_API_revoke_access_token(char * restrict access, char * restrict bot_id)
 {
     char tmp[strlen(access) + 159]; // request len + BOT_ID len + \0
 
@@ -196,12 +194,11 @@ void TTV_API_revoke_access_token(char *access, char *bot_id)
     "-H 'Content-Type: application/x-www-form-urlencoded' -d 'client_id=%s&token=%s'", bot_id, access);
     system(tmp);
 
-    snprintf(tmp, sizeof(tmp), "Revoked token %s", access);
-    log4c(tmp);
+    log4c("Revoked token %s", access);
 }
 
 
-char **TTV_API_refresh_access_token(char *refresh_token, char *bot_id, char *bot_secret)
+char **TTV_API_refresh_access_token(char * restrict refresh_token, char * restrict bot_id, char * restrict bot_secret)
 {
     log4c("refreshing TwitchAPI tokens...");
     {
@@ -230,8 +227,7 @@ char **TTV_API_refresh_access_token(char *refresh_token, char *bot_id, char *bot
     cJSON *error = cJSON_GetObjectItemCaseSensitive(json, "error");
     if (error)
     {
-        snprintf(tmp, sizeof(tmp), "request failed with code %d", error->valueint);
-        log4c(tmp);
+        log4c("request failed with code %d", error->valueint);
         return 0;
     }
     cJSON *access = cJSON_GetObjectItemCaseSensitive(json, "access_token");
@@ -255,7 +251,7 @@ char **TTV_API_refresh_access_token(char *refresh_token, char *bot_id, char *bot
 }
 
 
-char TTV_API_get_stream_info(char *access, char *channel_name, char *bot_id)
+char TTV_API_get_stream_info(char * restrict access, char * restrict channel_name, char * restrict bot_id)
 {
     {
     char tmp[strlen(channel_name) + 201];
@@ -281,8 +277,7 @@ char TTV_API_get_stream_info(char *access, char *channel_name, char *bot_id)
     cJSON *error = cJSON_GetObjectItemCaseSensitive(json, "error");
     if (error)
     {
-        snprintf(tmp, sizeof(tmp), "Request failed: %s", error->valuestring);
-        log4c(tmp);
+        log4c("Request failed: %s", error->valuestring);
         cJSON_Delete(json);
         return 0;
     }
@@ -313,7 +308,7 @@ char TTV_API_get_stream_info(char *access, char *channel_name, char *bot_id)
 }
 
 
-void TTV_API_update_stream_info(char *streamerId, char *access, int gameId, char *title, char *bot_id)
+void TTV_API_update_stream_info(char * restrict streamerId, char * restrict access, int gameId, char * restrict title, char * restrict bot_id)
 {
     char tmp[1024];
     char titleRediff[strlen(title) + 14];
@@ -333,20 +328,16 @@ void TTV_API_update_stream_info(char *streamerId, char *access, int gameId, char
     cJSON *json = cJSON_Parse(tmp);
     cJSON *error = cJSON_GetObjectItemCaseSensitive(json, "error");
     if (error)
-    {
-        snprintf(tmp, sizeof(tmp), "Request failed to update stream informations: %d: %s", error->valueint, error->valuestring);
-        log4c(tmp);
-    }
+        log4c("Request failed to update stream informations: %d: %s", error->valueint, error->valuestring);
+    
     else
-    {
-        snprintf(tmp, sizeof(tmp), "Updated stream infos to game_id: %d and title %s", gameId, titleRediff);
-        log4c(tmp);
-    }
+        log4c("Updated stream infos to game_id: %d and title %s", gameId, titleRediff);
+    
     cJSON_Delete(json);
 }
 
 
-char *TTV_API_get_streamer_id(char *access, char *streamer_login, char *bot_id)
+char *TTV_API_get_streamer_id(char * restrict access, char * restrict streamer_login, char * restrict bot_id)
 {
     char tmp[1024];
     snprintf(tmp, sizeof(tmp), "curl -X GET 'https://api.twitch.tv/helix/users?login=%s' "
@@ -378,7 +369,7 @@ char *TTV_API_get_streamer_id(char *access, char *streamer_login, char *bot_id)
 }
 
 
-char *TTV_API_raid(char *access, char *fromId, char *toId, char *bot_id)
+char *TTV_API_raid(char * restrict access, char * restrict fromId, char * restrict toId, char * restrict bot_id)
 {
     char tmp[512];
     snprintf(tmp, sizeof(tmp), "curl -X POST 'https://api.twitch.tv/helix/raids?from_broadcaster_id=%s&to_broadcaster_id=%s' "
@@ -405,7 +396,7 @@ char *TTV_API_raid(char *access, char *fromId, char *toId, char *bot_id)
 }
 
 
-char *TTV_API_get_app_token(char *bot_id, char *bot_secret)
+char *TTV_API_get_app_token(char * restrict bot_id, char * restrict bot_secret)
 {
     {
         char tmp[254];
@@ -433,8 +424,7 @@ char *TTV_API_get_app_token(char *bot_id, char *bot_secret)
     cJSON *error = cJSON_GetObjectItemCaseSensitive(json, "error");
     if (error)
     {
-        snprintf(tmp, sizeof(tmp), "Request failed: %s", error->valuestring);
-        log4c(tmp);
+        log4c("Request failed: %s", error->valuestring);
         cJSON_Delete(json);
         return NULL;
     }

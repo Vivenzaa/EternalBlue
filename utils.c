@@ -201,9 +201,7 @@ int getGame(char *title, char ***wordlist)
             isFound = strstr(titleLowered, wordlist[i][j]);
             if (isFound)
             {
-                char tmp[128];
-                snprintf(tmp, sizeof(tmp), "found game: %s in title %s", wordlist[i][0], title);
-                log4c(tmp);
+                log4c("found game: %s in title %s", wordlist[i][0], title);
                 return i;
             }
             j++;
@@ -211,16 +209,14 @@ int getGame(char *title, char ***wordlist)
         j = 0;
         i++;
     }
-    char tmp[256];
-    snprintf(tmp, sizeof(tmp), "Couln't find game for title %s, defaulting to \"Special Event\"...", title);        // try getting game from YT videos's data
-    log4c(tmp);
+    log4c("Couln't find game for title %s, defaulting to \"Special Event\"...", title);        // try getting game from YT videos's data
     return 0;
 }
 
 
 char *get_metadata(char *filename)
 {
-    {char tmp[256]; snprintf(tmp, sizeof(tmp), "fetching metadatas of %s...", filename); log4c(tmp);}
+    log4c("fetching metadatas of %s...", filename);
     AVFormatContext *fmt_ctx = NULL;
     avformat_open_input(&fmt_ctx, filename, NULL, NULL);
     AVDictionaryEntry *tag = NULL;
@@ -233,12 +229,12 @@ char *get_metadata(char *filename)
             return toReturn;
         }
     }
-    {char tmp[256]; snprintf(tmp, sizeof(tmp), "couldn't get metadatas of %s...", filename); log4c(tmp);}
+    log4c("couldn't get metadatas of %s...", filename);
     return 0;
 }
 
 
-void write_metadata(char *filename, char *toWrite)
+void write_metadata(char * restrict filename, char * restrict toWrite)
 {
     char *output = "/tmp/Karmine/30784230304235.mp4";
     AVFormatContext *fmt_ctx = NULL;
@@ -427,9 +423,7 @@ long convert_to_timestamp(char *datetime) {     // converts YYYY-MM-DDThh:mm:ss.
 
     time_t timestamp = timegm(&tm);
     if (timestamp == -1) {
-        char tmp[256];
-        snprintf(tmp, sizeof(tmp), "convert_to_timestamp : Conversion en timestamp échouée. str given : %s, after processing : %s", datetime, temp);
-        log4c(tmp);
+        log4c("convert_to_timestamp : Conversion en timestamp échouée. str given : %s, after processing : %s", datetime, temp);
         return -1;
     }
 
@@ -447,7 +441,7 @@ void *cmdRunInThread(void *str)
 }
 
 
-int get_video_duration(char *video, char *local_path)             // returns timestamp of video duration
+int get_video_duration(char * restrict video, char * restrict local_path)             // returns timestamp of video duration
 {
     char cmd[256];
     snprintf(cmd, sizeof(cmd), "ffprobe -show_entries format=duration \"./%s%s\" > /tmp/Karmine/drtn.tmp", local_path, video);
@@ -473,7 +467,7 @@ int get_video_duration(char *video, char *local_path)             // returns tim
 }
 
 
-int get_undownloaded_videos(char *local_path, char *google_api_key)
+int get_undownloaded_videos(char * restrict local_path, char * restrict google_api_key)
 {
     char tmp[256];
     char video[128];
