@@ -82,7 +82,6 @@ void *download_videos(void *bool)
 void *ffwrite(void *data)
 {
     ffdata *pathfifo = (ffdata *)data;
-    int *fifo_fd = pathfifo->fifo;
 
     char cmdFIFO[strlen("ffmpeg -hide_banner -re -i \"\" -c copy -f mpegts -") +
                  strlen(LOCAL_PATH) +
@@ -94,9 +93,11 @@ void *ffwrite(void *data)
     char buffer[4096];
     size_t bytesRead;
     while ((bytesRead = fread(buffer, 1, sizeof(buffer), ffmpeg)) > 0)
-        write(*fifo_fd, buffer, bytesRead);
+        if (write(*pathfifo->fifo, buffer, bytesRead) == -1)
+            log4c("ffwrite: writing error");
     
 
+    free(data);
     pclose(ffmpeg);
     return NULL;
 }
@@ -223,13 +224,16 @@ restart:
     }
     while (time(NULL) + current_time_offset - timestart < 157000)
     {
-        ffdata data = {video, &fifo_fd};
+        ffdata *data = malloc(sizeof(ffdata));
+        data->videopath = video;
+        data->fifo = &fifo_fd;
+        //{video, &fifo_fd};
         pthread_t ffThr;
-        pthread_create(&ffThr, NULL, ffwrite, (void *)&data);
+        pthread_create(&ffThr, NULL, ffwrite, (void *)data);
             {
             char **tokentmp = tokensInfos;
             tokensInfos = TTV_API_refresh_access_token(tokensInfos[1], BOT_ID, BOT_SECRET);
-            free(tokentmp);
+            recur_free(tokentmp);
             }
         
         char *streamer_id = TTV_API_get_streamer_id(tokensInfos[0], CHANNEL_NAME, BOT_ID);
@@ -293,14 +297,19 @@ restart:
         if (KarmineToWait + (int)time(NULL) + current_time_offset <= (int)get_video_duration(nextVideo, LOCAL_PATH) + endtime) // if next match starts before next video ends (with one more minute)
         {
             pthread_join(ffThr, NULL); // wait until current video ends
-            ffdata data = {"./placeholder.mp4", &fifo_fd};
-            pthread_create(&ffThr, NULL, ffwrite, (void *)&data); 
+            ffdata *data = malloc(sizeof(ffdata));
+            data->videopath = "./placeholder.mp4";
+            data->fifo = &fifo_fd;
+            pthread_create(&ffThr, NULL, ffwrite, (void *)data); 
             log4c("next match will be starting soon, raiding next stream...");
             log4c("attempting to raid %s...", streamer);
 
-            streamer_id = TTV_API_get_streamer_id(tokensInfos[0], CHANNEL_NAME, BOT_ID);
-            char *raidValue = TTV_API_raid(tokensInfos[0], streamer_id, TTV_API_get_streamer_id(tokensInfos[0], streamer, BOT_ID), BOT_ID);
-            free(streamer_id);
+            char *from_id = TTV_API_get_streamer_id(tokensInfos[0], CHANNEL_NAME, BOT_ID);
+            char *to_id = TTV_API_get_streamer_id(tokensInfos[0], streamer, BOT_ID);
+
+            char *raidValue = TTV_API_raid(tokensInfos[0], from_id, to_id, BOT_ID);
+            free(from_id);
+            free(to_id);
 
             if (raidValue)
                 log4c("Failed to raid %s: %s", streamer, raidValue);
