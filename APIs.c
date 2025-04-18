@@ -198,7 +198,7 @@ void TTV_API_revoke_access_token(char * restrict access, char * restrict bot_id)
 }
 
 
-char **TTV_API_refresh_access_token(char * restrict refresh_token, char * restrict bot_id, char * restrict bot_secret)
+void TTV_API_refresh_access_token(char * restrict bot_id, char * restrict bot_secret, char * restrict refresh_token, char * restrict token)
 {
     log4c("refreshing TwitchAPI tokens...");
     {
@@ -222,36 +222,28 @@ char **TTV_API_refresh_access_token(char * restrict refresh_token, char * restri
         
         fclose(fichier);
         cJSON_Delete(json); 
-        return NULL; 
+        return; 
     }
     cJSON *error = cJSON_GetObjectItemCaseSensitive(json, "error");
     if (error)
     {
         log4c("request failed with code %d", error->valueint);
-        return 0;
+        return;
     }
     cJSON *access = cJSON_GetObjectItemCaseSensitive(json, "access_token");
     cJSON *refresh = cJSON_GetObjectItemCaseSensitive(json, "refresh_token");
-
-    
-    char **buffer = malloc(3 * sizeof(char*));
-    for (int i =0 ; i < 3; ++i)
-        buffer[i] = malloc(64 * sizeof(char));
     
 
-    strcpy(buffer[0], access->valuestring);
-    strcpy(buffer[1], refresh->valuestring);
-    buffer[2] = NULL;
-    char **toReturn = buffer;                       // memcpy() --> free()
+    strcpy(token, access->valuestring);
+    strcpy(refresh_token, refresh->valuestring);
 
     fclose(fichier);
     remove("/tmp/Karmine/response.json");
     cJSON_Delete(json);
-    return toReturn;
 }
 
 
-char TTV_API_get_stream_info(char * restrict access, char * restrict channel_name, char * restrict bot_id)
+void TTV_API_get_stream_info(char * restrict access, char * restrict channel_name, char * restrict bot_id)
 {
     {
     char tmp[strlen(channel_name) + 201];
@@ -269,17 +261,17 @@ char TTV_API_get_stream_info(char * restrict access, char * restrict channel_nam
         const char *error_ptr = cJSON_GetErrorPtr(); 
         if (error_ptr != NULL) { 
             log4c((char *)error_ptr); 
-            return -1;
+            return;
         } 
         cJSON_Delete(json); 
-        return -1; 
+        return; 
     }
     cJSON *error = cJSON_GetObjectItemCaseSensitive(json, "error");
     if (error)
     {
         log4c("Request failed: %s", error->valuestring);
         cJSON_Delete(json);
-        return 0;
+        return;
     }
     cJSON *data = cJSON_GetObjectItemCaseSensitive(json, "data");
     cJSON *item = cJSON_GetArrayItem(data, 0);
@@ -296,7 +288,7 @@ char TTV_API_get_stream_info(char * restrict access, char * restrict channel_nam
         fputs("offline\n0", fichier);
         fclose(fichier);
         cJSON_Delete(json);
-        return 0;
+        return;
     }
 
     int toReturn = vwCount->valueint;
@@ -304,7 +296,6 @@ char TTV_API_get_stream_info(char * restrict access, char * restrict channel_nam
     fputs(tmp, fichier);
     fclose(fichier);
     cJSON_Delete(json);
-    return 1;
 }
 
 
@@ -337,11 +328,11 @@ void TTV_API_update_stream_info(char * restrict streamerId, char * restrict acce
 }
 
 
-char *TTV_API_get_streamer_id(char * restrict access, char * restrict streamer_login, char * restrict bot_id)
+char *TTV_API_get_user_id(char * restrict access, char * restrict user_login, char * restrict bot_id)
 {
     char tmp[1024];
     snprintf(tmp, sizeof(tmp), "curl -X GET 'https://api.twitch.tv/helix/users?login=%s' "
-    "-H 'Authorization: Bearer %s' -H 'Client-Id: %s' -o /tmp/Karmine/response.json", streamer_login, access, bot_id);
+    "-H 'Authorization: Bearer %s' -H 'Client-Id: %s' -o /tmp/Karmine/response.json", user_login, access, bot_id);
     system(tmp);
 
     FILE *fichier = fopen("/tmp/Karmine/response.json", "r");
@@ -438,3 +429,16 @@ char *TTV_API_get_app_token(char * restrict bot_id, char * restrict bot_secret)
 
     return toReturn;
 }
+
+
+void TTV_API_ban_user(char * restrict bot_id, char * restrict token, char * restrict toban_login, char *mod_id, char *streamer_id)
+{
+    char *toban_id = TTV_API_get_user_id(token, toban_login, bot_id);
+    char tmp[289 + strlen(streamer_id) + strlen(mod_id) + strlen(toban_id)];
+    snprintf(tmp, sizeof(tmp), "curl -X POST 'https://api.twitch.tv/helix/moderation/bans?broadcaster_id=%s&moderator_id=%s' -H 'Authorization: Bearer %s' -H 'Client-Id: %s' -H 'Content-Type: application/json' -d '{\"data\": {\"user_id\":\"%s\",\"reason\":\"fait pas ta pub fdp\"}}'", streamer_id, mod_id, token, bot_id, toban_id);
+    system(tmp);
+    
+    free(toban_id);
+}
+
+

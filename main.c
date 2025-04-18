@@ -10,6 +10,7 @@
 #include <fcntl.h>
 #include <cjson/cJSON.h>
 #include <time.h>
+#include <errno.h>
 // #include <signal.h>
 
 #define STREAM_KEY "live_1219233412_x9qHLfK4nDukOO8SFaiRNjqivyFuGh"
@@ -89,16 +90,43 @@ void *ffwrite(void *data)
 
     snprintf(cmdFIFO, sizeof(cmdFIFO), "ffmpeg -hide_banner -re -i \"%s%s\" -c copy -f mpegts -", LOCAL_PATH, pathfifo->videopath);
 
+    log4c("ffwrite: launching command: %s", cmdFIFO);
+
     FILE *ffmpeg = popen(cmdFIFO, "r");
+    if (!ffmpeg) {
+        log4c("ffwrite: popen failed: %s", strerror(errno));
+        free(data);
+        return NULL;
+    }
+
+    log4c("ffwrite: ffmpeg process opened");
+
     char buffer[4096];
     size_t bytesRead;
-    while ((bytesRead = fread(buffer, 1, sizeof(buffer), ffmpeg)) > 0)
-        if (write(*pathfifo->fifo, buffer, bytesRead) == -1)
-            log4c("ffwrite: writing error");
-    
+    while ((bytesRead = fread(buffer, 1, sizeof(buffer), ffmpeg)) > 0) {
+        ssize_t written = write(*pathfifo->fifo, buffer, bytesRead);
+        if (written == -1) {
+            log4c("ffwrite: write failed: %s", strerror(errno));
+            break;
+        } else if ((size_t)written != bytesRead) {
+            log4c("ffwrite: partial write (%zd/%zu bytes)", written, bytesRead);
+        }
+    }
+
+    if (ferror(ffmpeg)) {
+        log4c("ffwrite: fread encountered an error: %s", strerror(errno));
+    }
+
+    int pclose_status = pclose(ffmpeg);
+    if (pclose_status == -1) {
+        log4c("ffwrite: pclose failed: %s", strerror(errno));
+    } else {
+        log4c("ffwrite: ffmpeg process closed with status: %d", pclose_status);
+    }
 
     free(data);
-    pclose(ffmpeg);
+    log4c("ffwrite: finished execution and freed memory");
+
     return NULL;
 }
 
@@ -137,30 +165,10 @@ void intHandler()
 int main(int argc, char **argv)
 {
     setlocale(LC_ALL, "fr_FR.UTF-8");
-    system("rm -rf /tmp/Karmine/");
-    system("mkdir /tmp/Karmine");
-    system("rm -rf /var/tmp/Karmine");
-    system("mkdir /var/tmp/Karmine");
-    short current_time_offset = 0;
-    char ***WORDLIST = malloc(sizeof(char **) * 9);
-    WORDLIST[0] = (char *[]){"kcx", NULL};
-    WORDLIST[1] = (char *[]){"rocket league", "buts", "spacestation", "spin", "rlcs", "exotiik", "zen", "rl ", " rl", "moist esport", "complexity gaming", NULL};
-    WORDLIST[2] = (char *[]){"tft", "canbizz", NULL};
-    WORDLIST[3] = (char *[]){"valorant", "vct", "vcl", "vctemea", "redbullhomeground", "game changers", "karmine corp gc", "joueuses", "female", "nelo", "filles", "ninou", "ze1sh", "féminine", "shin", "matriix", NULL};
-    WORDLIST[4] = (char *[]){"lol", "league of legends", "div2lol", "emeamasters", "emea masters", "first stand", "redbull league of its own", "lfl", "lec", "lck", "eu masters", "academy", "karmine corp blue", "movistar riders", "aegis", "bk rog", "eumasters", "ldlc", "vitality bee", "kcb", "hantera", "t1", "faker", "vitality.bee", "cdf", "coupe de france", "botlane", "gold", "eum", "caliste", "saken", NULL};
-    WORDLIST[5] = (char *[]){"trackmania", "otaaaq", "bren", NULL};
-    WORDLIST[6] = (char *[]){"kurama", NULL};
-    WORDLIST[7] = (char *[]){"fncs", NULL};
-    WORDLIST[8] = NULL;
-    const int CATEGORY_IDS[] = {509663, 30921, 513143, 516575, 21779, 687129551, 504461, 33214};
-    
+
     char *knownArgs[] = {"--help", "--enable-chatbot", "--enable-monitoring-server", "--full-fflog", "--log-current-token", "--keep-after-read", "-loglevel", "-logretention", "-dlspeed", "-delay"};
     unsigned long *settings = calloc(sizeof(char *), sizeof(knownArgs) / sizeof(char *));
     handleArgs(argv, argc, settings, knownArgs);
-    char *streamer = malloc(8);
-
-    // signal(SIGINT, intHandler);
-    // signal(SIGTERM, intHandler);
 
     if (settings[0])
     {
@@ -180,8 +188,38 @@ int main(int argc, char **argv)
                );
         exit(0);
     }
+
+    system("rm -rf /tmp/Karmine/");
+    system("mkdir /tmp/Karmine");
+    system("rm -rf /var/tmp/Karmine");
+    system("mkdir /var/tmp/Karmine");
+    short current_time_offset = 0;
+    char ***WORDLIST = malloc(sizeof(char **) * 9);
+    WORDLIST[0] = (char *[]){"kcx", NULL};
+    WORDLIST[1] = (char *[]){"rocket league", "buts", "spacestation", "spin", "rlcs", "exotiik", "zen", "rl ", " rl", "moist esport", "complexity gaming", NULL};
+    WORDLIST[2] = (char *[]){"tft", "canbizz", NULL};
+    WORDLIST[3] = (char *[]){"valorant", "vct", "vcl", "vctemea", "redbullhomeground", "game changers", "karmine corp gc", "joueuses", "female", "nelo", "filles", "ninou", "ze1sh", "féminine", "shin", "matriix", NULL};
+    WORDLIST[4] = (char *[]){"lol", "league of legends", "div2lol", "emeamasters", "emea masters", "first stand", "redbull league of its own", "lfl", "lec", "lck", "eu masters", "academy", "karmine corp blue", "movistar riders", "aegis", "bk rog", "eumasters", "ldlc", "vitality bee", "kcb", "hantera", "t1", "faker", "vitality.bee", "cdf", "coupe de france", "botlane", "gold", "eum", "caliste", "saken", NULL};
+    WORDLIST[5] = (char *[]){"trackmania", "otaaaq", "bren", NULL};
+    WORDLIST[6] = (char *[]){"kurama", NULL};
+    WORDLIST[7] = (char *[]){"fncs", NULL};
+    WORDLIST[8] = NULL;
+    const int CATEGORY_IDS[] = {509663, 30921, 513143, 516575, 21779, 687129551, 504461, 33214};
     
-    char **tokensInfos = TTV_API_refresh_access_token(DEFAULT_REFRESH_TOKEN, BOT_ID, BOT_SECRET);
+    
+
+    char *streamer = malloc(8);
+    char *channel_name = CHANNEL_NAME;
+    char access_token[31];
+    char refresh_token[51] = DEFAULT_REFRESH_TOKEN;
+    TTV_API_refresh_access_token(BOT_ID, BOT_SECRET, refresh_token, access_token);
+    char *streamer_channel_id = TTV_API_get_user_id(access_token, channel_name, BOT_ID);
+    char tmp[512];
+
+    // signal(SIGINT, intHandler);
+    // signal(SIGTERM, intHandler);
+
+    
     
 restart:
     current_time_offset = get_utc_offset() * 3600;
@@ -204,7 +242,6 @@ restart:
     //OPTIMIZATION CAN BE DONE HERE
     free(WantsFFLogs);
 
-    char tmp[512];
 
     long timestart = time(NULL) + current_time_offset;
     char *nextVideo = video;
@@ -230,19 +267,16 @@ restart:
         //{video, &fifo_fd};
         pthread_t ffThr;
         pthread_create(&ffThr, NULL, ffwrite, (void *)data);
-            {
-            char **tokentmp = tokensInfos;
-            tokensInfos = TTV_API_refresh_access_token(tokensInfos[1], BOT_ID, BOT_SECRET);
-            recur_free(tokentmp);
-            }
+        TTV_API_refresh_access_token(BOT_ID, BOT_SECRET, refresh_token, access_token);
+            
         
-        char *streamer_id = TTV_API_get_streamer_id(tokensInfos[0], CHANNEL_NAME, BOT_ID);
+        char *streamer_id = TTV_API_get_user_id(access_token, CHANNEL_NAME, BOT_ID);
         char *curl_name = curl_filename(video);
         if (curl_name == NULL)
-            TTV_API_update_stream_info(streamer_id, tokensInfos[0], CATEGORY_IDS[getGame(video, WORDLIST)], video, BOT_ID);
+            TTV_API_update_stream_info(streamer_id, access_token, CATEGORY_IDS[getGame(video, WORDLIST)], video, BOT_ID);
         else
         {
-            TTV_API_update_stream_info(streamer_id, tokensInfos[0], CATEGORY_IDS[getGame(video, WORDLIST)], curl_name, BOT_ID);
+            TTV_API_update_stream_info(streamer_id, access_token, CATEGORY_IDS[getGame(video, WORDLIST)], curl_name, BOT_ID);
             free(curl_name);
         }
         free(streamer_id);
@@ -261,7 +295,7 @@ restart:
         {
             /*------------------------------------HANDLE WEB MONITORING------------------------------------*/
             log4c("web_monitoring: getting self stream infos...");                                      //
-            TTV_API_get_stream_info(tokensInfos[0], CHANNEL_NAME, BOT_ID);                                 //
+            TTV_API_get_stream_info(access_token, CHANNEL_NAME, BOT_ID);                                 //
             FILE *streamInfos = fopen("/tmp/Karmine/mntr.data", "r");                                      //
             char isOnline[8];                                                                              //
             char vwCount[6];                                                                               //
@@ -301,14 +335,11 @@ restart:
             data->videopath = "./placeholder.mp4";
             data->fifo = &fifo_fd;
             pthread_create(&ffThr, NULL, ffwrite, (void *)data); 
-            log4c("next match will be starting soon, raiding next stream...");
-            log4c("attempting to raid %s...", streamer);
+            log4c("next match will be starting soon, attempting to raid %s...", streamer);
 
-            char *from_id = TTV_API_get_streamer_id(tokensInfos[0], CHANNEL_NAME, BOT_ID);
-            char *to_id = TTV_API_get_streamer_id(tokensInfos[0], streamer, BOT_ID);
-
-            char *raidValue = TTV_API_raid(tokensInfos[0], from_id, to_id, BOT_ID);
-            free(from_id);
+            char *to_id = TTV_API_get_user_id(access_token, streamer, BOT_ID);
+            char *raidValue = TTV_API_raid(access_token, streamer_channel_id, to_id, BOT_ID);
+            
             free(to_id);
 
             if (raidValue)
@@ -358,8 +389,8 @@ restart:
         video = nextVideo;
         pthread_join(ffThr, NULL);
     }
-    if ((time(NULL) + current_time_offset) - timestart < 157000)
-        log4c("Twitch limit of 48h is almost reached, resetting stream...");
+    
+    log4c("Twitch limit of 48h is almost reached, resetting stream...");
     close(fifo_fd);
     sleep(10);
     recur_free(playlist);
