@@ -405,6 +405,8 @@ restart:
 
 
 /*
+    passer par popen pour éviter la création de fichiers temporaires pas super utiles
+
     FIRST LAUNCH :
         - if no creds.json is found, prompt for manual API KEYs registering via stdin
         - allow for argument --configure to review/change keys
@@ -472,7 +474,7 @@ restart:
             - idées chatbot :
                 - !random -> donne une phrase random (#KCWIN, fuck Karnage, prochain match dans hh:mm:ss, ...)
                 - !next -> donne hh:mm:ss avant le prochain match
-                - !(game) -> prochain match sur (game)
+                
                 - !resultats -> affiche tous les resultats des dernières 24h (ou le plus récent)
                 - !resultats (jeux) -> affiche les 3 derniers resultats d'un jeu
                 - !game (jeu) -> associe jeu à la BD pour cette vidéo si jamais aucun jeu ne lui est associé

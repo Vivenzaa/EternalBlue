@@ -6,6 +6,7 @@
 #include <cjson/cJSON.h>
 
 
+
 int KarmineAPI_timeto(char **streamer, int current_time, char wantsStart)
 {
     log4c("Fetching API datas of La Prestigieuse...");
@@ -387,7 +388,7 @@ char *TTV_API_raid(char * restrict access, char * restrict fromId, char * restri
 }
 
 
-char *TTV_API_get_app_token(char * restrict bot_id, char * restrict bot_secret)
+int TTV_API_get_app_token(char * restrict bot_id, char * restrict bot_secret, char * restrict token)
 {
     {
         char tmp[254];
@@ -406,10 +407,10 @@ char *TTV_API_get_app_token(char * restrict bot_id, char * restrict bot_secret)
         const char *error_ptr = cJSON_GetErrorPtr(); 
         if (error_ptr != NULL) { 
             log4c((char *)error_ptr); 
-            return NULL;
+            return -1;
         } 
-        cJSON_Delete(json); 
-        return NULL; 
+        cJSON_Delete(json);
+        return -1; 
     }
     
     cJSON *error = cJSON_GetObjectItemCaseSensitive(json, "error");
@@ -417,17 +418,23 @@ char *TTV_API_get_app_token(char * restrict bot_id, char * restrict bot_secret)
     {
         log4c("Request failed: %s", error->valuestring);
         cJSON_Delete(json);
-        return NULL;
+        return -1;
     }
 
     
-    cJSON *token = cJSON_GetObjectItemCaseSensitive(json, "access_token");
+    cJSON *app_token = cJSON_GetObjectItemCaseSensitive(json, "access_token");
+    cJSON *expire = cJSON_GetObjectItemCaseSensitive(json, "expires_in");
     
+    strcpy(token, app_token->valuestring);
+    int ret = expire->valueint;
+    if(ret >= 1300000)
+        ret = 1300000;
+    else
+        ret = ret - 1;
     
-    char *toReturn = malloc(strlen(token->valuestring) + 1);
-    strcpy(toReturn, token->valuestring);
+    cJSON_Delete(json);
 
-    return toReturn;
+    return ret;
 }
 
 
@@ -442,3 +449,84 @@ void TTV_API_ban_user(char * restrict bot_id, char * restrict token, char * rest
 }
 
 
+void TTV_API_fetch_results(char *game, result_info_t array[])
+{
+    FILE *fichier = fopen("/var/tmp/Karmine/api.json", "r");
+    if (fichier == NULL)
+    {
+        system("curl -X GET https://api2.kametotv.fr/karmine/group_a -o /var/tmp/Karmine/api.json");
+        fichier = fopen("/var/tmp/Karmine/api.json", "r");
+    }
+
+    unsigned int taille = SizeOfFile("/var/tmp/Karmine/api.json");
+    char *tmp = malloc(taille);
+    fread(tmp, 1, taille, fichier); 
+    fclose(fichier);
+
+    cJSON *useless = cJSON_Parse(tmp); 
+    if (useless == NULL) { 
+        const char *error_ptr = cJSON_GetErrorPtr(); 
+        if (error_ptr != NULL) { 
+            log4c("Couldn't fetch Karmine's API data");
+        }
+        log4c("json file is NULL, aborting...");
+        cJSON_Delete(useless);
+        return;
+    }
+
+    cJSON *json = cJSON_GetObjectItemCaseSensitive(useless, "events_results");
+    int k = 0;
+
+    for (int i = 0; i < cJSON_GetArraySize(json); i++)
+    {
+        if (k >= 3)
+            break;
+        cJSON *current = cJSON_GetArrayItem(json, i);
+        if(current == NULL)
+        {
+            log4c("upcomming is NULL, aborting...");
+            cJSON_Delete(useless);
+            break;
+        }
+        
+        if (game)
+        {
+            cJSON *initial = cJSON_GetObjectItemCaseSensitive(current, "initial");
+            if (strcmp(initial->valuestring, game))
+                continue;
+        }
+
+        cJSON *titre = cJSON_GetObjectItemCaseSensitive(current, "title");
+        cJSON *kc = cJSON_GetObjectItemCaseSensitive(current, "score_domicile");
+        cJSON *looser = cJSON_GetObjectItemCaseSensitive(current, "score_exterieur");
+        cJSON *date = cJSON_GetObjectItemCaseSensitive(current, "start");
+
+        strncpy(array[k].date, date->valuestring, 10);
+        array[k].title = malloc(strlen(titre->valuestring) + 1);
+            strcpy(array[k].title, titre->valuestring);
+        array[k].score_kc = malloc(strlen(kc->valuestring) + 1);
+            strcpy(array[k].score_kc, kc->valuestring);
+    
+        
+        if(!cJSON_IsNull(looser))
+        {
+            array[k].score_nullos = malloc(strlen(looser->valuestring) + 1);  // il faut toujours verifier le null case dans le test.c
+                strcpy(array[k].score_nullos, looser->valuestring);
+        }
+        else
+        {
+            array[k].score_nullos = malloc(1);
+            array[k].score_nullos[0] = '\0';
+        }
+        k++;
+    
+    }
+
+        
+    free(tmp);
+    cJSON_Delete(useless);
+    // check game != NULL
+        // no ? just fetch 3 lasts
+        // yes ? check 3 last results of the game
+            // if needed, convert to more general (vct, vcl etc)
+}
