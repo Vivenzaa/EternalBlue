@@ -7,6 +7,14 @@ typedef struct ffdata
     int *fifo;
 }ffdata;
 
+typedef struct {
+    char major;
+    char minor;
+    char patch;
+} ver_t;
+
+extern const ver_t version;
+
 void itos(int N, char *str);
 void log4c(char *base, ...);
 char get_utc_offset();

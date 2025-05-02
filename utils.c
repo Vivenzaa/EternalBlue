@@ -12,6 +12,9 @@
 #include <stdarg.h>
 
 
+const ver_t version = {1, 1, -1};
+
+
 void itos(int N, char *str) 
 {
     int i = 0;
@@ -444,7 +447,7 @@ void *cmdRunInThread(void *str)
 int get_video_duration(char * restrict video, char * restrict local_path)             // returns timestamp of video duration
 {
     char cmd[256];
-    snprintf(cmd, sizeof(cmd), "ffprobe -show_entries format=duration \"./%s%s\" > /tmp/Karmine/drtn.tmp", local_path, video);
+    snprintf(cmd, sizeof(cmd), "ffprobe -hide_banner -show_entries format=duration \"./%s%s\" > /tmp/Karmine/drtn.tmp", local_path, video);
     system(cmd);
 
     FILE *fichier = fopen("/tmp/Karmine/drtn.tmp", "r");

@@ -23,6 +23,9 @@
 #define SEED 0xb00b5
 
 
+unsigned long *settings = NULL;
+
+
 void *download_videos(void *bool)
 {
     char **videos = file_lines("/tmp/Karmine/recentVids");
@@ -34,13 +37,13 @@ void *download_videos(void *bool)
 
         system("mkdir /tmp/Karmine/ytdlp");
 
-        snprintf(tmp, sizeof(tmp), "yt-dlp --cookies-from-browser firefox -r 3000000 -f 299+140 %s%s -P /tmp/Karmine/ytdlp/", "https://www.youtube.com/watch?v=" + (32 * (videos[i][0] != '-')), videos[i]);
+        snprintf(tmp, sizeof(tmp), "yt-dlp --cookies-from-browser firefox -r %ld -f 299+140 %s%s -P /tmp/Karmine/ytdlp/", 3000000 * !settings[8] + settings[8],  "https://www.youtube.com/watch?v=" + (32 * (videos[i][0] != '-')), videos[i]);
         int ret = system(tmp);
         if(ret)
         {
             log4c("yt-dlp couldn't download specified video, trying to resolve...");
             system("pip install yt-dlp -U --break-system-packages");
-            snprintf(tmp, sizeof(tmp), "yt-dlp --cookies-from-browser firefox -r 3000000 -f 137+140 %s%s -P /tmp/Karmine/ytdlp/", "https://www.youtube.com/watch?v=" + (32 * (videos[i][0] != '-')), videos[i]);
+            snprintf(tmp, sizeof(tmp), "yt-dlp --cookies-from-browser firefox -r %ld -f 137+140 %s%s -P /tmp/Karmine/ytdlp/", 3000000 * !settings[8] + settings[8], "https://www.youtube.com/watch?v=" + (32 * (videos[i][0] != '-')), videos[i]);
             system(tmp);
         }
 
@@ -84,9 +87,9 @@ void *ffwrite(void *data)
 {
     ffdata *pathfifo = (ffdata *)data;
 
-    char cmdFIFO[strlen("ffmpeg -hide_banner -re -i \"\" -c copy -f mpegts -") +
+    char cmdFIFO[51 +
                  strlen(LOCAL_PATH) +
-                 strlen(pathfifo->videopath) + 1];
+                 strlen(pathfifo->videopath)];
 
     snprintf(cmdFIFO, sizeof(cmdFIFO), "ffmpeg -hide_banner -re -i \"%s%s\" -c copy -f mpegts -", LOCAL_PATH, pathfifo->videopath);
 
@@ -166,9 +169,10 @@ int main(int argc, char **argv)
 {
     setlocale(LC_ALL, "fr_FR.UTF-8");
 
-    char *knownArgs[] = {"--help", "--enable-chatbot", "--enable-monitoring-server", "--full-fflog", "--log-current-token", "--keep-after-read", "-loglevel", "-logretention", "-dlspeed", "-delay"};
-    unsigned long *settings = calloc(sizeof(char *), sizeof(knownArgs) / sizeof(char *));
+    char *knownArgs[] = {"--help", "--enable-chatbot", "--enable-monitoring-server", "--full-fflog", "--log-current-token", "--keep-after-read", "-loglevel", "-logretention", "-dlspeed"};
+    settings = calloc(sizeof(char *), sizeof(knownArgs) / sizeof(char *));
     handleArgs(argv, argc, settings, knownArgs);
+
 
     if (settings[0])
     {
@@ -177,21 +181,21 @@ int main(int argc, char **argv)
                //"\t--enable-chatbot :               enables twitch chatbot, prediction handling etc\n"
                "\t--enable-monitoring-server :     enables monitoring via https url\n"
                "\t--full-fflog :                   allow creation of ff.log\n"
-               //"\t--log-current-token              UNSECURE : logs current access and app token in console.log\n"
+               "\t--log-current-token              UNSECURE : logs current access and app token in console.log\n"
                //"\t--log-retention x hours          how many time before logs completely delete\n"
                //"\t--keep-after-read                keeps videos on the machine after downloading/reading them\n"
                //"\t-loglevel [0,1,2]                how precise you want logs to be :\n"
                //"\t    0: no logs at all\n"
                //"\t    1: only infos\n"
                //"\t    2: debug, log everything\n"
-               //"\t--dlspeed                        specifies the download speed in bytes/s\n"
+               "\t--dlspeed                        specifies the download speed in bytes/s\n"
                );
         exit(0);
     }
 
-    system("rm -rf /tmp/Karmine/");
+    system("rm -r /tmp/Karmine/");
+    system("rm -r /var/tmp/Karmine");
     system("mkdir /tmp/Karmine");
-    system("rm -rf /var/tmp/Karmine");
     system("mkdir /var/tmp/Karmine");
     short current_time_offset = 0;
     char ***WORDLIST = malloc(sizeof(char **) * 9);
@@ -210,15 +214,17 @@ int main(int argc, char **argv)
 
     char *streamer = malloc(8);
     char *channel_name = CHANNEL_NAME;
-    char access_token[31];
-    char refresh_token[51] = DEFAULT_REFRESH_TOKEN;
-    TTV_API_refresh_access_token(BOT_ID, BOT_SECRET, refresh_token, access_token);
+    char *access_token = malloc(31);
+    char *refresh_token = malloc(51);
+        strcpy(refresh_token, DEFAULT_REFRESH_TOKEN);
+        TTV_API_refresh_access_token(BOT_ID, BOT_SECRET, &refresh_token, &access_token);
     char *streamer_channel_id = TTV_API_get_user_id(access_token, channel_name, BOT_ID);
     char tmp[512];
 
     // signal(SIGINT, intHandler);
     // signal(SIGTERM, intHandler);
-
+    if(settings[4])
+        log4c("launching program with Twitch token %s...", access_token);
     
     
 restart:
@@ -267,8 +273,9 @@ restart:
         //{video, &fifo_fd};
         pthread_t ffThr;
         pthread_create(&ffThr, NULL, ffwrite, (void *)data);
-        TTV_API_refresh_access_token(BOT_ID, BOT_SECRET, refresh_token, access_token);
-            
+        TTV_API_refresh_access_token(BOT_ID, BOT_SECRET, &refresh_token, &access_token);
+        if(settings[4])
+            log4c("refreshed Twitch token to %s", access_token);
         
         char *streamer_id = TTV_API_get_user_id(access_token, CHANNEL_NAME, BOT_ID);
         char *curl_name = curl_filename(video);
@@ -404,7 +411,9 @@ restart:
 
 
 
-/*
+/*  
+    créer un header web.c/h avec les fonctions web (qui seront utiles pour le serveur et pour tous les sources utilisant curl)
+
     passer par popen pour éviter la création de fichiers temporaires pas super utiles
 
     FIRST LAUNCH :

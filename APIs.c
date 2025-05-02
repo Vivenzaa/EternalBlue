@@ -10,7 +10,7 @@
 int KarmineAPI_timeto(char **streamer, int current_time, char wantsStart)
 {
     log4c("Fetching API datas of La Prestigieuse...");
-    system("curl -X GET https://api2.kametotv.fr/karmine/group_a -o /var/tmp/Karmine/api.json");
+    system("curl --libcurl /var/tmp/Karmine/KAPI.c -X GET https://api2.kametotv.fr/karmine/group_a -o /var/tmp/Karmine/api.json");
     FILE *fichier = fopen("/var/tmp/Karmine/api.json", "r");
     char tmp[SizeOfFile("/var/tmp/Karmine/api.json")];
     fread(tmp, 1, sizeof(tmp), fichier); 
@@ -82,8 +82,8 @@ char YTAPI_Get_Recent_Videos(unsigned int max, char *google_api_key)          //
     if (max <= 20)
     {   
         {
-            char tmpcmd[218];       // request len(175) + maxResult string len(max 2) + google api key len(40) + \0
-            snprintf(tmpcmd, sizeof(tmpcmd), "curl -X GET \"https://www.googleapis.com/youtube/v3/search?"
+            char tmpcmd[218+39];       // request len(175) + maxResult string len(max 2) + google api key len(40) + \0
+            snprintf(tmpcmd, sizeof(tmpcmd), "curl --libcurl /var/tmp/Karmine/YTAPI_GRV.c -X GET \"https://www.googleapis.com/youtube/v3/search?"
                 "part=snippet&channelId=UCApmTE4So9oX7sPkDGgSpFQ&maxResults=%d&order=date&type=video&key=%s\" > /tmp/Karmine/response.json", 
                 max, google_api_key);
             system(tmpcmd);
@@ -143,8 +143,8 @@ char YTAPI_Get_Recent_Videos(unsigned int max, char *google_api_key)          //
 char *YTAPI_Get_Video_Name(char * restrict videoId, char * restrict google_api_key)
 {
     {
-    char tmp[165];      // request len(95) + google api key len(40) + video id len(11) + \0
-    snprintf(tmp, sizeof(tmp), "curl -X GET \"https://www.googleapis.com/youtube/v3/videos?part=snippet&id=%s&key=%s\" > /tmp/Karmine/response.json", 
+    char tmp[165+39];      // request len(95) + google api key len(40) + video id len(11) + \0
+    snprintf(tmp, sizeof(tmp), "curl --libcurl /var/tmp/Karmine/YTAPI_GVN.c -X GET \"https://www.googleapis.com/youtube/v3/videos?part=snippet&id=%s&key=%s\" > /tmp/Karmine/response.json", 
         videoId, google_api_key);
     system(tmp);
     }
@@ -189,9 +189,9 @@ char *YTAPI_Get_Video_Name(char * restrict videoId, char * restrict google_api_k
 
 void TTV_API_revoke_access_token(char * restrict access, char * restrict bot_id)
 {
-    char tmp[strlen(access) + 159]; // request len + BOT_ID len + \0
+    char tmp[strlen(access) + 159+36]; // request len + BOT_ID len + \0
 
-    snprintf(tmp, sizeof(tmp), "curl -X POST 'https://id.twitch.tv/oauth2/revoke' "
+    snprintf(tmp, sizeof(tmp), "curl --libcurl /var/tmp/Karmine/TTV_RAT.c -X POST 'https://id.twitch.tv/oauth2/revoke' "
     "-H 'Content-Type: application/x-www-form-urlencoded' -d 'client_id=%s&token=%s'", bot_id, access);
     system(tmp);
 
@@ -199,14 +199,14 @@ void TTV_API_revoke_access_token(char * restrict access, char * restrict bot_id)
 }
 
 
-void TTV_API_refresh_access_token(char * restrict bot_id, char * restrict bot_secret, char * restrict refresh_token, char * restrict token)
+void TTV_API_refresh_access_token(char * restrict bot_id, char * restrict bot_secret, char ** restrict refresh_token, char ** restrict token)
 {
     log4c("refreshing TwitchAPI tokens...");
     {
-    char tmp[316];      // request len(184) + refresh token len(51) + BOT_ID len(31) + BOT_SECRET len(31) + \0
+    char tmp[316+38];      // request len(184) + refresh token len(51) + BOT_ID len(31) + BOT_SECRET len(31) + \0
     snprintf(tmp, sizeof(tmp), 
-    "curl -X POST https://id.twitch.tv/oauth2/token -H 'Content-Type: application/x-www-form-urlencoded' " 
-    "-d 'grant_type=refresh_token&refresh_token=%s&client_id=%s&client_secret=%s' -o /tmp/Karmine/response.json", refresh_token, bot_id, bot_secret);
+    "curl --libcurl /var/tmp/Karmine/TTV_REAT.c -X POST https://id.twitch.tv/oauth2/token -H 'Content-Type: application/x-www-form-urlencoded' " 
+    "-d 'grant_type=refresh_token&refresh_token=%s&client_id=%s&client_secret=%s' -o /tmp/Karmine/response.json", *refresh_token, bot_id, bot_secret);
     system(tmp);
     }
 
@@ -225,6 +225,7 @@ void TTV_API_refresh_access_token(char * restrict bot_id, char * restrict bot_se
         cJSON_Delete(json); 
         return; 
     }
+    
     cJSON *error = cJSON_GetObjectItemCaseSensitive(json, "error");
     if (error)
     {
@@ -233,10 +234,13 @@ void TTV_API_refresh_access_token(char * restrict bot_id, char * restrict bot_se
     }
     cJSON *access = cJSON_GetObjectItemCaseSensitive(json, "access_token");
     cJSON *refresh = cJSON_GetObjectItemCaseSensitive(json, "refresh_token");
-    
 
-    strcpy(token, access->valuestring);
-    strcpy(refresh_token, refresh->valuestring);
+    if(access && refresh)
+    {
+        strcpy(*token, access->valuestring);
+        strcpy(*refresh_token, refresh->valuestring);
+    }
+    
 
     fclose(fichier);
     remove("/tmp/Karmine/response.json");
@@ -247,8 +251,8 @@ void TTV_API_refresh_access_token(char * restrict bot_id, char * restrict bot_se
 void TTV_API_get_stream_info(char * restrict access, char * restrict channel_name, char * restrict bot_id)
 {
     {
-    char tmp[strlen(channel_name) + 201];
-    snprintf(tmp, sizeof(tmp), "curl -X GET 'https://api.twitch.tv/helix/streams?user_login=%s' "
+    char tmp[strlen(channel_name) + 201+37];
+    snprintf(tmp, sizeof(tmp), "curl --libcurl /var/tmp/Karmine/TTV_GSI.c -X GET 'https://api.twitch.tv/helix/streams?user_login=%s' "
     "-H 'Authorization: Bearer %s' -H 'Client-id: %s' -o /tmp/Karmine/response.json", channel_name, access, bot_id);
     system(tmp);
     }
@@ -302,12 +306,12 @@ void TTV_API_get_stream_info(char * restrict access, char * restrict channel_nam
 
 void TTV_API_update_stream_info(char * restrict streamerId, char * restrict access, int gameId, char * restrict title, char * restrict bot_id)
 {
-    char tmp[1024];
+    char tmp[1024+36];
     char titleRediff[strlen(title) + 14];
     strcpy(titleRediff, title);
     titleRediff[strlen(title) - 4] = '\0';
     strcat(titleRediff, " - [REDIFFUSION]");
-    snprintf(tmp, sizeof(tmp), "    curl -X PATCH 'https://api.twitch.tv/helix/channels?broadcaster_id=%s' "
+    snprintf(tmp, sizeof(tmp), "    curl --libcurl /var/tmp/Karmine/TTV_USI.c -X PATCH 'https://api.twitch.tv/helix/channels?broadcaster_id=%s' "
                                 "-H 'Authorization: Bearer %s' -H 'Client-Id: %s' -H 'Content-Type: application/json' "
                                 "--data-raw '{\"game_id\":\"%d\", \"title\":\"%s\", \"broadcaster_language\":\"fr\",  \"tags\":[\"KCORP\", \"Rediffusion\", \"247Stream\", \"botstream\", \"Français\", \"KarmineCorp\"]}' -o /tmp/Karmine/response.json", 
                                 streamerId, access, bot_id, gameId, titleRediff);
@@ -331,8 +335,8 @@ void TTV_API_update_stream_info(char * restrict streamerId, char * restrict acce
 
 char *TTV_API_get_user_id(char * restrict access, char * restrict user_login, char * restrict bot_id)
 {
-    char tmp[1024];
-    snprintf(tmp, sizeof(tmp), "curl -X GET 'https://api.twitch.tv/helix/users?login=%s' "
+    char tmp[1024+37];
+    snprintf(tmp, sizeof(tmp), "curl --libcurl /var/tmp/Karmine/TTV_GUI.c -X GET 'https://api.twitch.tv/helix/users?login=%s' "
     "-H 'Authorization: Bearer %s' -H 'Client-Id: %s' -o /tmp/Karmine/response.json", user_login, access, bot_id);
     system(tmp);
 
@@ -363,8 +367,8 @@ char *TTV_API_get_user_id(char * restrict access, char * restrict user_login, ch
 
 char *TTV_API_raid(char * restrict access, char * restrict fromId, char * restrict toId, char * restrict bot_id)
 {
-    char tmp[512];
-    snprintf(tmp, sizeof(tmp), "curl -X POST 'https://api.twitch.tv/helix/raids?from_broadcaster_id=%s&to_broadcaster_id=%s' "
+    char tmp[512+35];
+    snprintf(tmp, sizeof(tmp), "curl --libcurl /var/tmp/Karmine/TTV_R.c -X POST 'https://api.twitch.tv/helix/raids?from_broadcaster_id=%s&to_broadcaster_id=%s' "
         "-H 'Authorization: Bearer %s' -H 'Client-Id: %s' -o /tmp/Karmine/response.json", fromId, toId, access, bot_id);
     system(tmp);
 
@@ -388,11 +392,11 @@ char *TTV_API_raid(char * restrict access, char * restrict fromId, char * restri
 }
 
 
-int TTV_API_get_app_token(char * restrict bot_id, char * restrict bot_secret, char * restrict token)
+int TTV_API_get_app_token(char * restrict bot_id, char * restrict bot_secret, char **token)
 {
     {
-        char tmp[254];
-        snprintf(tmp, sizeof(tmp), "curl -X POST https://id.twitch.tv/oauth2/token -H 'Content-Type: application/x-www-form-urlencoded' "
+        char tmp[254+37];
+        snprintf(tmp, sizeof(tmp), "curl --libcurl /var/tmp/Karmine/TTV_GAT.c -X POST https://id.twitch.tv/oauth2/token -H 'Content-Type: application/x-www-form-urlencoded' "
         "-d 'client_id=%s&client_secret=%s&grant_type=client_credentials' -o /tmp/Karmine/appresponse.json", bot_id, bot_secret);
         system(tmp);
     }
@@ -425,7 +429,7 @@ int TTV_API_get_app_token(char * restrict bot_id, char * restrict bot_secret, ch
     cJSON *app_token = cJSON_GetObjectItemCaseSensitive(json, "access_token");
     cJSON *expire = cJSON_GetObjectItemCaseSensitive(json, "expires_in");
     
-    strcpy(token, app_token->valuestring);
+    strcpy(*token, app_token->valuestring);
     int ret = expire->valueint;
     if(ret >= 1300000)
         ret = 1300000;
@@ -441,8 +445,8 @@ int TTV_API_get_app_token(char * restrict bot_id, char * restrict bot_secret, ch
 void TTV_API_ban_user(char * restrict bot_id, char * restrict token, char * restrict toban_login, char *mod_id, char *streamer_id)
 {
     char *toban_id = TTV_API_get_user_id(token, toban_login, bot_id);
-    char tmp[289 + strlen(streamer_id) + strlen(mod_id) + strlen(toban_id)];
-    snprintf(tmp, sizeof(tmp), "curl -X POST 'https://api.twitch.tv/helix/moderation/bans?broadcaster_id=%s&moderator_id=%s' -H 'Authorization: Bearer %s' -H 'Client-Id: %s' -H 'Content-Type: application/json' -d '{\"data\": {\"user_id\":\"%s\",\"reason\":\"fait pas ta pub fdp\"}}'", streamer_id, mod_id, token, bot_id, toban_id);
+    char tmp[289 + strlen(streamer_id) + strlen(mod_id) + strlen(toban_id)+36];
+    snprintf(tmp, sizeof(tmp), "curl --libcurl /var/tmp/Karmine/TTV_BU.c -X POST 'https://api.twitch.tv/helix/moderation/bans?broadcaster_id=%s&moderator_id=%s' -H 'Authorization: Bearer %s' -H 'Client-Id: %s' -H 'Content-Type: application/json' -d '{\"data\": {\"user_id\":\"%s\",\"reason\":\"fait pas ta pub fdp\"}}'", streamer_id, mod_id, token, bot_id, toban_id);
     system(tmp);
     
     free(toban_id);
@@ -454,7 +458,7 @@ void TTV_API_fetch_results(char *game, result_info_t array[])
     FILE *fichier = fopen("/var/tmp/Karmine/api.json", "r");
     if (fichier == NULL)
     {
-        system("curl -X GET https://api2.kametotv.fr/karmine/group_a -o /var/tmp/Karmine/api.json");
+        system("curl --libcurl /var/tmp/Karmine/TTV_FR.c -X GET https://api2.kametotv.fr/karmine/group_a -o /var/tmp/Karmine/api.json");
         fichier = fopen("/var/tmp/Karmine/api.json", "r");
     }
 
@@ -518,6 +522,8 @@ void TTV_API_fetch_results(char *game, result_info_t array[])
             array[k].score_nullos = malloc(1);
             array[k].score_nullos[0] = '\0';
         }
+            
+        
         k++;
     
     }
