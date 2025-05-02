@@ -13,15 +13,16 @@
 #include <errno.h>
 // #include <signal.h>
 
-#define STREAM_KEY "live_1219233412_x9qHLfK4nDukOO8SFaiRNjqivyFuGh"
-#define LOCAL_PATH "videos/"
-#define CHANNEL_NAME "Kc_Replays"
-#define BOT_ID "kjnngccbj9fcde0r6jc3kv6jyzofqh"
-#define BOT_SECRET "ee4iflzar1zoeafxlyacxc2fk4cnwx"
-#define DEFAULT_REFRESH_TOKEN "jhpxs3j3pop5spqme9subykt9lvg36i9jlsop783uy966uwkjm"
-#define GOOGLE_API_KEY "AIzaSyA_mlDBPL3nTGUiIyonwF6HCnKeHnWdanM"
+
 #define SEED 0xb00b5
 
+char STREAM_KEY[47];
+char BOT_ID[31];
+char BOT_SECRET[31];
+char DEFAULT_REFRESH_TOKEN[51];
+char GOOGLE_API_KEY[40];
+char LOCAL_PATH[256];
+char CHANNEL_NAME[128];
 
 unsigned long *settings = NULL;
 
@@ -168,6 +169,26 @@ void intHandler()
 int main(int argc, char **argv)
 {
     setlocale(LC_ALL, "fr_FR.UTF-8");
+    
+    init_array_cheat(STREAM_KEY, sizeof(STREAM_KEY));
+    init_array_cheat(BOT_ID, sizeof(BOT_ID));
+    init_array_cheat(BOT_SECRET, sizeof(BOT_SECRET));
+    init_array_cheat(DEFAULT_REFRESH_TOKEN, sizeof(DEFAULT_REFRESH_TOKEN));
+    init_array_cheat(GOOGLE_API_KEY, sizeof(GOOGLE_API_KEY));
+    init_array_cheat(LOCAL_PATH, sizeof(LOCAL_PATH));
+    init_array_cheat(CHANNEL_NAME, sizeof(CHANNEL_NAME));
+
+    {
+        char envpath[512];
+        get_env_filepath(envpath, sizeof(envpath));
+        if (!get_env_infos(envpath, STREAM_KEY, BOT_ID, BOT_SECRET, DEFAULT_REFRESH_TOKEN, GOOGLE_API_KEY, LOCAL_PATH, CHANNEL_NAME))
+        {
+            askSave_env_infos(envpath);
+            get_env_infos(envpath, STREAM_KEY, BOT_ID, BOT_SECRET, DEFAULT_REFRESH_TOKEN, GOOGLE_API_KEY, LOCAL_PATH, CHANNEL_NAME);
+        }
+    }
+    
+
 
     char *knownArgs[] = {"--help", "--enable-chatbot", "--enable-monitoring-server", "--full-fflog", "--log-current-token", "--keep-after-read", "-loglevel", "-logretention", "-dlspeed"};
     settings = calloc(sizeof(char *), sizeof(knownArgs) / sizeof(char *));
@@ -417,9 +438,7 @@ restart:
     passer par popen pour éviter la création de fichiers temporaires pas super utiles
 
     FIRST LAUNCH :
-        - if no creds.json is found, prompt for manual API KEYs registering via stdin
         - allow for argument --configure to review/change keys
-        - at every launch, search for api keys by searching both creds.json and config file 
 
 
     REPUBLICATION DU CODE:

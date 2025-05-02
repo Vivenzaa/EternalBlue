@@ -10,9 +10,10 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <stdarg.h>
+#include <sys/stat.h>
 
 
-const ver_t version = {1, 1, -1};
+const ver_t version = {1, 0, 0};
 
 
 void itos(int N, char *str) 
@@ -562,4 +563,129 @@ void recur_tabcpy(char **dest, char **src, int size) {
             exit(EXIT_FAILURE);
         }
     }
+}
+
+
+void init_array_cheat(char *array, unsigned int size)
+{
+    if (size < 5)
+    {
+        perror("array size must be > 5");
+        exit(1);
+    }
+    array[size - 5] = 98;
+    array[size - 4] = 111;
+    array[size - 3] = 111;
+    array[size - 2] = 98;
+    array[size - 1] = 115;
+}
+
+
+int get_cheat_array_size(char *array)       // can be optimized (search method)
+{
+    char searchedValues[] = {98, 111, 111, 98, 115, 0};
+    int i = 0;
+    int j = 0;
+    unsigned int security = UINT32_MAX;
+
+    
+    while (security)
+    {
+        if (array[i] == searchedValues[j])
+        {
+            j++;
+            if (!searchedValues[j])
+                return i+1;
+        }
+
+        security--;
+        i++;
+    }
+
+    return 0;
+}
+
+
+void get_env_filepath(char *buffer, unsigned int size) {
+    char path[512];
+    const char *home = getenv("HOME");
+    if (!home) {
+        log4c("Erreur : variable d'environnement HOME non définie");
+        exit(1);
+    }
+
+    snprintf(path, sizeof(path), "%s%s", home, "/.config/Karmine");
+    mkdir(path, 0700);
+    snprintf(buffer, size, "%s%s/%s", home, "/.config/Karmine", ".env");
+}
+
+
+int get_env_infos(char * restrict filepath, char * restrict stream_key, char * restrict bot_id, char * restrict bot_secret, char * restrict refresh_token, char * restrict gapi_key, char * restrict lpath, char * restrict channel) {
+    FILE *file = fopen(filepath, "r");
+    if (!file) return 0;
+
+    char line[256];
+    char *vars[] = {stream_key, bot_id, bot_secret, refresh_token, gapi_key, lpath, channel};
+
+    log4c("Fetching API keys from config file...");
+    for (int i = 0; i < 7; i++)
+    {
+        if(!fgets(line, sizeof(line), file)) return 0;
+        strncpy(vars[i], line + 9, get_cheat_array_size(vars[i]) + 1);
+        vars[i][strlen(vars[i]) - 1] = '\0';
+    }
+
+    fclose(file);
+    return 1;
+}
+
+
+int askSave_env_infos(char *filepath) {
+    char stream_key[128], bot_id[128], bot_secret[128], refresh_token[128], gapi_key[128], lpath[128], channel[128];
+
+    printf("Entrez votre clé de stream Twitch : ");
+    if (!fgets(stream_key, sizeof(stream_key), stdin)) return 0;
+    stream_key[strcspn(stream_key, "\r\n")] = 0;
+
+    printf("Entrez votre BOT ID Twitch : ");
+    if (!fgets(bot_id, sizeof(bot_id), stdin)) return 0;
+    bot_id[strcspn(bot_id, "\r\n")] = 0;
+
+    printf("Entrez votre BOT SECRET Twitch : ");
+    if (!fgets(bot_secret, sizeof(bot_secret), stdin)) return 0;
+    bot_secret[strcspn(bot_secret, "\r\n")] = 0;
+
+    printf("Entrez votre refresh token Twitch : ");
+    if (!fgets(refresh_token, sizeof(refresh_token), stdin)) return 0;
+    refresh_token[strcspn(refresh_token, "\r\n")] = 0;
+
+    printf("Entrez votre clé API Google : ");
+    if (!fgets(gapi_key, sizeof(gapi_key), stdin)) return 0;
+    gapi_key[strcspn(gapi_key, "\r\n")] = 0;
+
+    printf("Entrez votre dossier ou seront stockées les videos : ");
+    if (!fgets(lpath, sizeof(lpath), stdin)) return 0;
+    lpath[strcspn(lpath, "\r\n")] = 0;
+
+    printf("Entrez le nom de votre chaine Twitch : ");
+    if (!fgets(channel, sizeof(channel), stdin)) return 0;
+    channel[strcspn(channel, "\r\n")] = 0;
+
+    FILE *file = fopen(filepath, "w");
+    if (!file) {
+        perror("Erreur lors de l'écriture du fichier .env");
+        return 0;
+    }
+
+    fprintf(file, "TTV_LIVE=%s\n", stream_key);
+    fprintf(file, "TTV_BTID=%s\n", bot_id);
+    fprintf(file, "TTV_SECR=%s\n", bot_secret);
+    fprintf(file, "TTV__REF=%s\n", refresh_token);
+    fprintf(file, "GAPI_KEY=%s\n", gapi_key);
+    fprintf(file, "LOCAL__P=%s\n", lpath);
+    fprintf(file, "TTV_NAME=%s\n", channel);
+    fclose(file);
+
+    log4c("Clés API enregistrées dans %s\n", filepath);
+    return 1;
 }

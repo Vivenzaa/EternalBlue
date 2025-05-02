@@ -33,5 +33,10 @@ int get_video_duration(char * restrict video, char * restrict local_path);
 int get_undownloaded_videos(char * restrict local_path, char * restrict google_api_key);
 void recur_free(char **tab);
 void recur_tabcpy(char **dest, char **src, int size);
+void get_env_filepath(char *buffer, unsigned int size);
+int get_env_infos(char * restrict filepath, char * restrict stream_key, char * restrict bot_id, char * restrict bot_secret, char * restrict refresh_token, char * restrict gapi_key, char * restrict lpath, char * restrict channel);
+int askSave_env_infos(char *filepath);
+void init_array_cheat(char *array, unsigned int size);
+int get_cheat_array_size(char *array);
 
 #endif
