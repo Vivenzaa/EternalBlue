@@ -13,7 +13,7 @@
 #include <sys/stat.h>
 
 
-const ver_t version = {1, 0, 0};
+const ver_t version = {1, 1, 0};
 
 
 void itos(int N, char *str) 
@@ -213,7 +213,7 @@ int getGame(char *title, char ***wordlist)
         j = 0;
         i++;
     }
-    log4c("Couln't find game for title %s, defaulting to \"Special Event\"...", title);        // try getting game from YT videos's data
+    log4c("Couln't find game for title %s, defaulting to \"Special Event\"...", title);
     return 0;
 }
 
@@ -222,8 +222,8 @@ char *get_metadata(char *filename)
 {
     log4c("fetching metadatas of %s...", filename);
     AVFormatContext *fmt_ctx = NULL;
-    avformat_open_input(&fmt_ctx, filename, NULL, NULL);
     AVDictionaryEntry *tag = NULL;
+    avformat_open_input(&fmt_ctx, filename, NULL, NULL);
 
     while ((tag = av_dict_get(fmt_ctx->metadata, "", tag, AV_DICT_IGNORE_SUFFIX))) {
         if (!strcmp(tag->key, "comment")) {
@@ -238,7 +238,7 @@ char *get_metadata(char *filename)
 }
 
 
-void write_metadata(char * restrict filename, char * restrict toWrite)
+void write_metadata(char * restrict filename, char * restrict toWrite)  // thx to ChatGPT for like 90% of this function
 {
     char *output = "/tmp/Karmine/30784230304235.mp4";
     AVFormatContext *fmt_ctx = NULL;

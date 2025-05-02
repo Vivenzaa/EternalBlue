@@ -170,27 +170,7 @@ int main(int argc, char **argv)
 {
     setlocale(LC_ALL, "fr_FR.UTF-8");
     
-    init_array_cheat(STREAM_KEY, sizeof(STREAM_KEY));
-    init_array_cheat(BOT_ID, sizeof(BOT_ID));
-    init_array_cheat(BOT_SECRET, sizeof(BOT_SECRET));
-    init_array_cheat(DEFAULT_REFRESH_TOKEN, sizeof(DEFAULT_REFRESH_TOKEN));
-    init_array_cheat(GOOGLE_API_KEY, sizeof(GOOGLE_API_KEY));
-    init_array_cheat(LOCAL_PATH, sizeof(LOCAL_PATH));
-    init_array_cheat(CHANNEL_NAME, sizeof(CHANNEL_NAME));
-
-    {
-        char envpath[512];
-        get_env_filepath(envpath, sizeof(envpath));
-        if (!get_env_infos(envpath, STREAM_KEY, BOT_ID, BOT_SECRET, DEFAULT_REFRESH_TOKEN, GOOGLE_API_KEY, LOCAL_PATH, CHANNEL_NAME))
-        {
-            askSave_env_infos(envpath);
-            get_env_infos(envpath, STREAM_KEY, BOT_ID, BOT_SECRET, DEFAULT_REFRESH_TOKEN, GOOGLE_API_KEY, LOCAL_PATH, CHANNEL_NAME);
-        }
-    }
-    
-
-
-    char *knownArgs[] = {"--help", "--enable-chatbot", "--enable-monitoring-server", "--full-fflog", "--log-current-token", "--keep-after-read", "-loglevel", "-logretention", "-dlspeed"};
+    char *knownArgs[] = {"--help", "--enable-chatbot", "--enable-monitoring-server", "--full-fflog", "--log-current-token", "--keep-after-read", "-loglevel", "-logretention", "-dlspeed", "--configure"};
     settings = calloc(sizeof(char *), sizeof(knownArgs) / sizeof(char *));
     handleArgs(argv, argc, settings, knownArgs);
 
@@ -209,10 +189,30 @@ int main(int argc, char **argv)
                //"\t    0: no logs at all\n"
                //"\t    1: only infos\n"
                //"\t    2: debug, log everything\n"
-               "\t--dlspeed                        specifies the download speed in bytes/s\n"
+               "\t-dlspeed                        specifies the download speed in bytes/s\n"
+               "\t--configure                     manually prompts for API keys update\n"
                );
         exit(0);
     }
+
+    init_array_cheat(STREAM_KEY, sizeof(STREAM_KEY));
+    init_array_cheat(BOT_ID, sizeof(BOT_ID));
+    init_array_cheat(BOT_SECRET, sizeof(BOT_SECRET));
+    init_array_cheat(DEFAULT_REFRESH_TOKEN, sizeof(DEFAULT_REFRESH_TOKEN));
+    init_array_cheat(GOOGLE_API_KEY, sizeof(GOOGLE_API_KEY));
+    init_array_cheat(LOCAL_PATH, sizeof(LOCAL_PATH));
+    init_array_cheat(CHANNEL_NAME, sizeof(CHANNEL_NAME));
+
+    {
+        char envpath[512];
+        get_env_filepath(envpath, sizeof(envpath));
+        if (settings[9] || !get_env_infos(envpath, STREAM_KEY, BOT_ID, BOT_SECRET, DEFAULT_REFRESH_TOKEN, GOOGLE_API_KEY, LOCAL_PATH, CHANNEL_NAME))
+        {
+            askSave_env_infos(envpath);
+            get_env_infos(envpath, STREAM_KEY, BOT_ID, BOT_SECRET, DEFAULT_REFRESH_TOKEN, GOOGLE_API_KEY, LOCAL_PATH, CHANNEL_NAME);
+        }
+    }
+
 
     system("rm -r /tmp/Karmine/");
     system("rm -r /var/tmp/Karmine");
@@ -262,13 +262,12 @@ restart:
         strcpy(WantsFFLogs, "/dev/null");
     char ffmpegCmd[179 + strlen(WantsFFLogs)];
     snprintf(ffmpegCmd, sizeof(ffmpegCmd),
-             "ffmpeg -hide_banner -loglevel debug -re -i /tmp/Karmine/video_fifo "
-             "-c copy -bufsize 18000k "
-             "-f flv rtmp://live.twitch.tv/app/%s > %s 2>&1",
-             STREAM_KEY, WantsFFLogs);
+            "ffmpeg -hide_banner -loglevel debug -re -i /tmp/Karmine/video_fifo "
+            "-c copy -bufsize 18000k "
+            "-f flv rtmp://live.twitch.tv/app/%s > %s 2>&1",
+            STREAM_KEY, WantsFFLogs);
     //OPTIMIZATION CAN BE DONE HERE
     free(WantsFFLogs);
-
 
     long timestart = time(NULL) + current_time_offset;
     char *nextVideo = video;
@@ -291,7 +290,7 @@ restart:
         ffdata *data = malloc(sizeof(ffdata));
         data->videopath = video;
         data->fifo = &fifo_fd;
-        //{video, &fifo_fd};
+        
         pthread_t ffThr;
         pthread_create(&ffThr, NULL, ffwrite, (void *)data);
         TTV_API_refresh_access_token(BOT_ID, BOT_SECRET, &refresh_token, &access_token);
@@ -321,35 +320,35 @@ restart:
 
         if (settings[2])
         {
-            /*------------------------------------HANDLE WEB MONITORING------------------------------------*/
-            log4c("web_monitoring: getting self stream infos...");                                      //
-            TTV_API_get_stream_info(access_token, CHANNEL_NAME, BOT_ID);                                 //
-            FILE *streamInfos = fopen("/tmp/Karmine/mntr.data", "r");                                      //
-            char isOnline[8];                                                                              //
-            char vwCount[6];                                                                               //
-            fgets(isOnline, sizeof(isOnline), streamInfos);                                                //
-            isOnline[strlen(isOnline) - 1] = '\0';                                                         //
-            fgets(tmp, sizeof(tmp), streamInfos);                                                          //
-            fgets(vwCount, sizeof(vwCount), streamInfos);                                                  //
-            fclose(streamInfos);                                                                           //
-            remove("/tmp/Karmine/mntr.data");                                                              //
-                                                                                                           //
-            streamInfos = fopen("/var/www/html/monitoring.json", "w");                                     //
-            cJSON *json = cJSON_CreateObject();                                                            //
-                                                                                                           //
-            cJSON_AddStringToObject(json, "status", isOnline);                                             //
-            cJSON_AddStringToObject(json, "videoTitle", video);                                            //
-            cJSON_AddNumberToObject(json, "videoDuration", (double)get_video_duration(video, LOCAL_PATH)); //
-            cJSON_AddNumberToObject(json, "videoStartTime", (double)time(NULL) + current_time_offset);     //
-            cJSON_AddNumberToObject(json, "streamStartTime", (double)timestart);                           //
-            cJSON_AddNumberToObject(json, "viewers", (double)atoi(vwCount));                               //
-                                                                                                           //
-            char *json_str = cJSON_Print(json);                                                            //
-            fputs(json_str, streamInfos);                                                                  //
-            fclose(streamInfos);                                                                           //
-            cJSON_free(json_str);                                                                          //
-            cJSON_Delete(json);                                                                            //
-            /*------------------------------------HANDLE WEB MONITORING------------------------------------*/
+            /*------------------------------------HANDLE WEB MONITORING-------------------------------------*/
+            log4c("web_monitoring: getting self stream infos...");                                          //
+            TTV_API_get_stream_info(access_token, CHANNEL_NAME, BOT_ID);                                    //
+            FILE *streamInfos = fopen("/tmp/Karmine/mntr.data", "r");                                       //
+            char isOnline[8];                                                                               //
+            char vwCount[6];                                                                                //
+            fgets(isOnline, sizeof(isOnline), streamInfos);                                                 //
+            isOnline[strlen(isOnline) - 1] = '\0';                                                          //
+            fgets(tmp, sizeof(tmp), streamInfos);                                                           //
+            fgets(vwCount, sizeof(vwCount), streamInfos);                                                   //
+            fclose(streamInfos);                                                                            //
+            remove("/tmp/Karmine/mntr.data");                                                               //
+                                                                                                            //
+            streamInfos = fopen("/var/www/html/monitoring.json", "w");                                      //
+            cJSON *json = cJSON_CreateObject();                                                             //
+                                                                                                            //
+            cJSON_AddStringToObject(json, "status", isOnline);                                              //
+            cJSON_AddStringToObject(json, "videoTitle", video);                                             //
+            cJSON_AddNumberToObject(json, "videoDuration", (double)get_video_duration(video, LOCAL_PATH));  //
+            cJSON_AddNumberToObject(json, "videoStartTime", (double)time(NULL) + current_time_offset);      //
+            cJSON_AddNumberToObject(json, "streamStartTime", (double)timestart);                            //
+            cJSON_AddNumberToObject(json, "viewers", (double)atoi(vwCount));                                //
+                                                                                                            //
+            char *json_str = cJSON_Print(json);                                                             //
+            fputs(json_str, streamInfos);                                                                   //
+            fclose(streamInfos);                                                                            //
+            cJSON_free(json_str);                                                                           //
+            cJSON_Delete(json);                                                                             //
+            /*------------------------------------HANDLE WEB MONITORING-------------------------------------*/
         }
 
         while (video == nextVideo)
@@ -369,7 +368,6 @@ restart:
             char *raidValue = TTV_API_raid(access_token, streamer_channel_id, to_id, BOT_ID);
             
             free(to_id);
-
             if (raidValue)
                 log4c("Failed to raid %s: %s", streamer, raidValue);
             else
@@ -411,7 +409,7 @@ restart:
             {
                 log4c("found no blocking condition, restarting stream...");
                 recur_free(playlist);
-                goto restart; // else, restart the stream
+                goto restart;
             }
         }
         video = nextVideo;
@@ -419,7 +417,6 @@ restart:
     }
     
     log4c("Twitch limit of 48h is almost reached, resetting stream...");
-    close(fifo_fd);
     sleep(10);
     recur_free(playlist);
     goto restart;
