@@ -16,13 +16,13 @@
 
 #define SEED 0xb00b5
 
-char STREAM_KEY[47];
-char BOT_ID[31];
-char BOT_SECRET[31];
-char DEFAULT_REFRESH_TOKEN[51];
-char GOOGLE_API_KEY[40];
-char LOCAL_PATH[256];
-char CHANNEL_NAME[128];
+char *STREAM_KEY = NULL;
+char *BOT_ID = NULL;
+char *BOT_SECRET = NULL;
+char *DEFAULT_REFRESH_TOKEN = NULL;
+char *GOOGLE_API_KEY = NULL;
+char *LOCAL_PATH = NULL;
+char *CHANNEL_NAME = NULL;
 
 unsigned long *settings = NULL;
 
@@ -171,10 +171,10 @@ int main(int argc, char **argv)
     setlocale(LC_ALL, "fr_FR.UTF-8");
     
     char *knownArgs[] = {"--help", "--enable-chatbot", "--enable-monitoring-server", "--full-fflog", "--log-current-token", "--keep-after-read", "-loglevel", "-logretention", "-dlspeed", "--configure"};
-    settings = calloc(sizeof(char *), sizeof(knownArgs) / sizeof(char *));
+    settings = calloc(sizeof(knownArgs) / sizeof(char *), sizeof(unsigned long));
     handleArgs(argv, argc, settings, knownArgs);
 
-
+    
     if (settings[0])
     {
         printf("list of args : \n"
@@ -195,24 +195,29 @@ int main(int argc, char **argv)
         exit(0);
     }
 
-    init_array_cheat(STREAM_KEY, sizeof(STREAM_KEY));
-    init_array_cheat(BOT_ID, sizeof(BOT_ID));
-    init_array_cheat(BOT_SECRET, sizeof(BOT_SECRET));
-    init_array_cheat(DEFAULT_REFRESH_TOKEN, sizeof(DEFAULT_REFRESH_TOKEN));
-    init_array_cheat(GOOGLE_API_KEY, sizeof(GOOGLE_API_KEY));
-    init_array_cheat(LOCAL_PATH, sizeof(LOCAL_PATH));
-    init_array_cheat(CHANNEL_NAME, sizeof(CHANNEL_NAME));
+    STREAM_KEY = malloc(47);                //init_array_cheat(STREAM_KEY, 47);
+    BOT_ID = malloc(31);                    //init_array_cheat(BOT_ID, 31);
+    BOT_SECRET = malloc(31);                //init_array_cheat(BOT_SECRET, 31);
+    DEFAULT_REFRESH_TOKEN = malloc(51);     //init_array_cheat(DEFAULT_REFRESH_TOKEN, 51);
+    GOOGLE_API_KEY = malloc(40);            //init_array_cheat(GOOGLE_API_KEY, 40);
+    LOCAL_PATH = malloc(256);               //init_array_cheat(LOCAL_PATH, 256);
+    CHANNEL_NAME = malloc(128);             //init_array_cheat(CHANNEL_NAME, 128);
+
+    
 
     {
         char envpath[512];
         get_env_filepath(envpath, sizeof(envpath));
+
+        get_env_infos(envpath, STREAM_KEY, BOT_ID, BOT_SECRET, DEFAULT_REFRESH_TOKEN, GOOGLE_API_KEY, LOCAL_PATH, CHANNEL_NAME);
         if (settings[9] || !get_env_infos(envpath, STREAM_KEY, BOT_ID, BOT_SECRET, DEFAULT_REFRESH_TOKEN, GOOGLE_API_KEY, LOCAL_PATH, CHANNEL_NAME))
         {
             askSave_env_infos(envpath);
             get_env_infos(envpath, STREAM_KEY, BOT_ID, BOT_SECRET, DEFAULT_REFRESH_TOKEN, GOOGLE_API_KEY, LOCAL_PATH, CHANNEL_NAME);
         }
     }
-
+        
+        
 
     system("rm -r /tmp/Karmine/");
     system("rm -r /var/tmp/Karmine");
@@ -250,6 +255,7 @@ int main(int argc, char **argv)
     
 restart:
     current_time_offset = get_utc_offset() * 3600;
+
     
     char **playlist = getAllFiles(LOCAL_PATH);
     char *WantsFFLogs = malloc(strlen("/var/tmp/Karmine/ff.log") * settings[3]      +       strlen("/dev/null") * (!settings[3]) + 1);

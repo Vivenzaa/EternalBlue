@@ -13,7 +13,8 @@
 #include <sys/stat.h>
 
 
-const ver_t version = {1, 1, 0};
+
+const ver_t version = {1, 1, 1};
 
 
 void itos(int N, char *str) 
@@ -596,6 +597,7 @@ int get_cheat_array_size(char *array)       // can be optimized (search method)
             j++;
             if (!searchedValues[j])
                 return i+1;
+                
         }
 
         security--;
@@ -631,7 +633,7 @@ int get_env_infos(char * restrict filepath, char * restrict stream_key, char * r
     for (int i = 0; i < 7; i++)
     {
         if(!fgets(line, sizeof(line), file)) return 0;
-        strncpy(vars[i], line + 9, get_cheat_array_size(vars[i]) + 1);
+        strncpy(vars[i], line + 9, 256); //get_cheat_array_size(vars[i]) + 1);
         vars[i][strlen(vars[i]) - 1] = '\0';
     }
 
