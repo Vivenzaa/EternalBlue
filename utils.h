@@ -14,6 +14,7 @@ typedef struct {
 } ver_t;
 
 extern const ver_t version;
+extern char logDepth;
 
 char get_utc_offset();
 char *curl_filename(char *ptr);
@@ -33,10 +34,12 @@ unsigned int size_of_double_array(char **array);
 void get_env_filepath(char *buffer, unsigned int size);
 void init_array_cheat(char *array, unsigned int size);
 void itos(int N, char *str);
-void log4c(char *base, ...);
+void log4c(char logtype, char *base, ...);
 void recur_free(char **tab);
 void recur_tabcpy(char **dest, char **src, int size);
 void write_metadata(char * restrict filename, char * restrict toWrite);
 void *cmdRunInThread(void *str);
+void recover_slashes(char * s);
+void replace_slashes(char * s);
 
 #endif

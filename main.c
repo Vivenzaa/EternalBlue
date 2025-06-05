@@ -26,30 +26,32 @@ char *CHANNEL_NAME = NULL;
 
 unsigned long *settings = NULL;
 
+int isDownloaded = 0;
 
-void *download_videos(void *bool)
+
+void *download_videos(void* _useless)
 {
     char **videos = file_lines("/tmp/Karmine/recentVids");
     remove("/tmp/Karmine/recentVids");
     char tmp[256];
+    log4c(1, "Downloading %d video(s)...", size_of_double_array(videos));
     for (int i = size_of_double_array(videos) - 1; i >= 0; i--)
     { 
-        log4c("Downloading %s...", videos[i]);
-
+        log4c(1, "Downloading %s...", videos[i]);
         system("mkdir /tmp/Karmine/ytdlp");
 
         snprintf(tmp, sizeof(tmp), "yt-dlp --cookies-from-browser firefox -r %ld -f 299+140 %s%s -P /tmp/Karmine/ytdlp/", 3000000 * !settings[8] + settings[8],  "https://www.youtube.com/watch?v=" + (32 * (videos[i][0] != '-')), videos[i]);
         int ret = system(tmp);
         if(ret)
         {
-            log4c("yt-dlp couldn't download specified video, trying to resolve...");
+            log4c(2, "yt-dlp couldn't download specified video, trying to resolve...");
             system("pip install yt-dlp -U --break-system-packages");
-            snprintf(tmp, sizeof(tmp), "yt-dlp --cookies-from-browser firefox -r %ld -f 137+140 %s%s -P /tmp/Karmine/ytdlp/", 3000000 * !settings[8] + settings[8], "https://www.youtube.com/watch?v=" + (32 * (videos[i][0] != '-')), videos[i]);
+            snprintf(tmp, sizeof(tmp), "yt-dlp --cookies-from-browser firefox --merge-output-format mp4 --extractor-args \"youtube:player-client=default,-tv,web_safari,web_embedded\" -r %ld %s%s -P /tmp/Karmine/ytdlp/", 3000000 * !settings[8] + settings[8], "https://www.youtube.com/watch?v=" + (32 * (videos[i][0] != '-')), videos[i]);
             system(tmp);
         }
 
         char *videoTitle = YTAPI_Get_Video_Name(videos[i], GOOGLE_API_KEY);
-        log4c("Successfully downloaded %s : %s", videos[i], videoTitle);
+        log4c(1, "Successfully downloaded %s : %s", videos[i], videoTitle);
 
         char videotmp[strlen(videoTitle) + 5];
         strcpy(videotmp, videoTitle);
@@ -64,7 +66,7 @@ void *download_videos(void *bool)
         strcpy(fullLink, "https://www.youtube.com/watch?v=");
         strcat(fullLink, videos[i]);
 
-        log4c("writing metadata to %s", videotmp);
+        log4c(0, "writing metadata to %s", videotmp);
 
         snprintf(tmp, sizeof(tmp), "/tmp/Karmine/%s", videotmp);
         write_metadata(tmp, fullLink);
@@ -75,12 +77,10 @@ void *download_videos(void *bool)
     }
 
     recur_free(videos);
-    log4c("Successfully downloaded all recent videos.");
-    int *a = (int *)bool;
-    *a = 1;
-    bool = (void *)a;
+    log4c(1, "Successfully downloaded all recent videos.");
+    isDownloaded = 1;
 
-    return bool;
+    return _useless;
 }
 
 
@@ -94,42 +94,45 @@ void *ffwrite(void *data)
 
     snprintf(cmdFIFO, sizeof(cmdFIFO), "ffmpeg -hide_banner -re -i \"%s%s\" -c copy -f mpegts -", LOCAL_PATH, pathfifo->videopath);
 
-    log4c("ffwrite: launching command: %s", cmdFIFO);
+    log4c(0, "ffwrite: launching command: %s", cmdFIFO);
 
     FILE *ffmpeg = popen(cmdFIFO, "r");
     if (!ffmpeg) {
-        log4c("ffwrite: popen failed: %s", strerror(errno));
+        log4c(3, "ffwrite: popen failed: %s", strerror(errno));
         free(data);
         return NULL;
     }
 
-    log4c("ffwrite: ffmpeg process opened");
+    log4c(0, "ffwrite: ffmpeg process opened");
 
     char buffer[4096];
     size_t bytesRead;
     while ((bytesRead = fread(buffer, 1, sizeof(buffer), ffmpeg)) > 0) {
+        if (fcntl(*pathfifo->fifo, F_GETFD) == -1) 
+            log4c(3, "ffwrite: invalid FIFO fd %d: %s", *pathfifo->fifo, strerror(errno));
+        
         ssize_t written = write(*pathfifo->fifo, buffer, bytesRead);
         if (written == -1) {
-            log4c("ffwrite: write failed: %s", strerror(errno));
+            log4c(3, "ffwrite: write failed: %s", strerror(errno));
             break;
         } else if ((size_t)written != bytesRead) {
-            log4c("ffwrite: partial write (%zd/%zu bytes)", written, bytesRead);
+            log4c(2, "ffwrite: partial write (%zd/%zu bytes)", written, bytesRead);
         }
     }
 
     if (ferror(ffmpeg)) {
-        log4c("ffwrite: fread encountered an error: %s", strerror(errno));
+        log4c(3, "ffwrite: fread encountered an error: %s", strerror(errno));
     }
 
     int pclose_status = pclose(ffmpeg);
     if (pclose_status == -1) {
-        log4c("ffwrite: pclose failed: %s", strerror(errno));
+        log4c(2, "ffwrite: pclose failed: %s", strerror(errno));
     } else {
-        log4c("ffwrite: ffmpeg process closed with status: %d", pclose_status);
+        log4c(0, "ffwrite: ffmpeg process closed with status: %d", pclose_status);
     }
 
     free(data);
-    log4c("ffwrite: finished execution and freed memory");
+    log4c(0, "ffwrite: finished execution and freed memory");
 
     return NULL;
 }
@@ -173,24 +176,26 @@ int main(int argc, char **argv)
     char *knownArgs[] = {"--help", "--enable-chatbot", "--enable-monitoring-server", "--full-fflog", "--log-current-token", "--keep-after-read", "-loglevel", "-logretention", "-dlspeed", "--configure"};
     settings = calloc(sizeof(knownArgs) / sizeof(char *), sizeof(unsigned long));
     handleArgs(argv, argc, settings, knownArgs);
+    logDepth = settings[6];
 
     
     if (settings[0])
     {
         printf("list of args : \n"
-               "\t--help :                         affiche cette page\n"
+               "\t--help :                          affiche cette page\n"
                //"\t--enable-chatbot :               enables twitch chatbot, prediction handling etc\n"
-               "\t--enable-monitoring-server :     enables monitoring via https url\n"
-               "\t--full-fflog :                   allow creation of ff.log\n"
-               "\t--log-current-token              UNSECURE : logs current access and app token in console.log\n"
+               "\t--enable-monitoring-server :      enables monitoring via https url\n"
+               "\t--full-fflog :                    allow creation of ff.log\n"
+               "\t--log-current-token               UNSECURE : logs current access and app token in console.log\n"
                //"\t--log-retention x hours          how many time before logs completely delete\n"
                //"\t--keep-after-read                keeps videos on the machine after downloading/reading them\n"
-               //"\t-loglevel [0,1,2]                how precise you want logs to be :\n"
-               //"\t    0: no logs at all\n"
-               //"\t    1: only infos\n"
-               //"\t    2: debug, log everything\n"
-               "\t-dlspeed                        specifies the download speed in bytes/s\n"
-               "\t--configure                     manually prompts for API keys update\n"
+               "\t-loglevel [0,1,2,3]               how precise you want logs to be :\n"
+               "\t    0: no logs at all\n"
+               "\t    1: only infos\n"
+               "\t    2: log everything\n"
+               "\t    3: debug\n"
+               "\t-dlspeed                          specifies the download speed in bytes/s\n"
+               "\t--configure                       manually prompts for API keys update\n"
                );
         exit(0);
     }
@@ -250,7 +255,7 @@ int main(int argc, char **argv)
     // signal(SIGINT, intHandler);
     // signal(SIGTERM, intHandler);
     if(settings[4])
-        log4c("launching program with Twitch token %s...", access_token);
+        log4c(1, "launching program with Twitch token %s...", access_token);
     
     
 restart:
@@ -283,13 +288,12 @@ restart:
 
     int fifo_fd = open("/tmp/Karmine/video_fifo", 01);      // O_WRONLY
 
-    log4c("checking for yt-dlp update...");
+    log4c(1, "checking for yt-dlp update...");
     system("pip install yt-dlp -U --break-system-packages");
-    int isDownloaded = 0;
     if (get_undownloaded_videos(LOCAL_PATH, GOOGLE_API_KEY))
     {
         pthread_t downloaderThr;
-        pthread_create(&downloaderThr, NULL, download_videos, (void *)&isDownloaded);
+        pthread_create(&downloaderThr, NULL, download_videos, NULL);
     }
     while (time(NULL) + current_time_offset - timestart < 157000)
     {
@@ -301,7 +305,7 @@ restart:
         pthread_create(&ffThr, NULL, ffwrite, (void *)data);
         TTV_API_refresh_access_token(BOT_ID, BOT_SECRET, &refresh_token, &access_token);
         if(settings[4])
-            log4c("refreshed Twitch token to %s", access_token);
+            log4c(0, "refreshed Twitch token to %s", access_token);
         
         char *streamer_id = TTV_API_get_user_id(access_token, CHANNEL_NAME, BOT_ID);
         char *curl_name = curl_filename(video);
@@ -322,12 +326,12 @@ restart:
         }
         int endtime = get_video_duration(video, LOCAL_PATH) + (int)time(NULL) + current_time_offset;
         snprintf(tmp, sizeof(tmp), "Now playing %s, estimated end time : %02d:%02d:%02d", video, (endtime / 3600) % 24, (endtime / 60) % 60, endtime % 60);
-        log4c(tmp);
+        log4c(1, tmp);
 
         if (settings[2])
         {
             /*------------------------------------HANDLE WEB MONITORING-------------------------------------*/
-            log4c("web_monitoring: getting self stream infos...");                                          //
+            log4c(0, "web_monitoring: getting self stream infos...");                                          //
             TTV_API_get_stream_info(access_token, CHANNEL_NAME, BOT_ID);                                    //
             FILE *streamInfos = fopen("/tmp/Karmine/mntr.data", "r");                                       //
             char isOnline[8];                                                                               //
@@ -368,27 +372,28 @@ restart:
             data->videopath = "./placeholder.mp4";
             data->fifo = &fifo_fd;
             pthread_create(&ffThr, NULL, ffwrite, (void *)data); 
-            log4c("next match will be starting soon, attempting to raid %s...", streamer);
+            log4c(1, "next match will be starting soon, attempting to raid %s...", streamer);
 
             char *to_id = TTV_API_get_user_id(access_token, streamer, BOT_ID);
             char *raidValue = TTV_API_raid(access_token, streamer_channel_id, to_id, BOT_ID);
             
             free(to_id);
             if (raidValue)
-                log4c("Failed to raid %s: %s", streamer, raidValue);
+                log4c(2, "Failed to raid %s: %s", streamer, raidValue);
             else
-                log4c("Successfully raided %s", streamer);
+                log4c(1, "Successfully raided %s", streamer);
 
             free(raidValue);
-            log4c("Attempting to close stream...");
+            log4c(1, "Attempting to close stream...");
             pthread_join(ffThr, NULL);
+            log4c(3, "closing fifo_fd...");
             system("echo q > /tmp/Karmine/video_fifo");
             close(fifo_fd);
         wait_again:
             KarmineToWait = KarmineAPI_timeto(&streamer, time(NULL) + current_time_offset, 0);
             if (KarmineToWait > 20000)          // si il y a plus de 6h d'attente c'est bizarre, on restart
             {
-                log4c("Waiting time is above 5h30, assuming an error was made, restarting...");
+                log4c(2, "Waiting time is above 5h30, assuming an error was made, restarting...");
                 recur_free(playlist);
                 goto restart;
             }
@@ -396,7 +401,7 @@ restart:
             snprintf(tmp, sizeof(tmp), "Waiting %02d:%02d:%02d until next match, estimated next loop starts at %02d:%02d:%02d...",
                      (KarmineToWait / 3600) % 24, (KarmineToWait / 60) % 60, KarmineToWait % 60,
                      ((KarmineToWait + (int)time(NULL) + current_time_offset) / 3600) % 24, ((KarmineToWait + (int)time(NULL)) / 60) % 60, (KarmineToWait + (int)time(NULL)) % 60);
-            log4c(tmp);
+            log4c(1, tmp);
             sleep(KarmineToWait + 10);
             
 
@@ -408,12 +413,12 @@ restart:
                 snprintf(tmp, sizeof(tmp), "Choosing not the restart the stream right now, next match starts at %02d:%02d:%02d while next video would end at %02d:%02d:%02d",
                         ((KarmineToWait + (int)time(NULL) + current_time_offset) / 3600) % 24, ((KarmineToWait + (int)time(NULL)) / 60) % 60, (KarmineToWait + (int)time(NULL)) % 60,
                         ((nextVidDuration + (int)time(NULL) + current_time_offset) / 3600) % 24, ((nextVidDuration + (int)time(NULL)) / 60) % 60, (nextVidDuration + (int)time(NULL)) % 60);
-                log4c(tmp);
+                log4c(1, tmp);
                 goto wait_again;
             }
             else
             {
-                log4c("found no blocking condition, restarting stream...");
+                log4c(1, "found no blocking condition, restarting stream...");
                 recur_free(playlist);
                 goto restart;
             }
@@ -422,7 +427,7 @@ restart:
         pthread_join(ffThr, NULL);
     }
     
-    log4c("Twitch limit of 48h is almost reached, resetting stream...");
+    log4c(2, "Twitch limit of 48h is almost reached, resetting stream...");
     sleep(10);
     recur_free(playlist);
     goto restart;
@@ -436,7 +441,17 @@ restart:
 
 
 /*  
+    mettre un système d'interface semi-graphiques 
     créer un header web.c/h avec les fonctions web (qui seront utiles pour le serveur et pour tous les sources utilisant curl)
+    trouver une solution pour le stack des videos (+1.2To actuellement, c cho)
+        - implémentation du --keep-after-read ? 
+            - possiblement un nombre de keep possible à passer en arguments
+            - peut etre pouvoir spécifier de garder une seule catégorie 
+            - si not keep, que faire en cas de video strike/mise en privée ou jsp, ce serait con de les perdre
+                - peut etre foutre les vidéos not keep sur une chaine youtube 
+                    - dans ce cas faut vite implémenter la base de donnée, on verifier si elle est sur la chaine custom, si oui on la prends la sinon sur la chaine offi
+        - compression ?  (on retarde juste le problème)
+
 
     passer par popen pour éviter la création de fichiers temporaires pas super utiles
 
@@ -445,11 +460,8 @@ restart:
 
 
     REPUBLICATION DU CODE:
-        - mettre en place un fichier .cred à lire pour les token API -> pour éviter de tout re leak mdrr
-        - changer les clés API au cas ou 
         - cleanup le code 
         - choisir entre anglais et français (pck bon le mélange des 2 ça va 5m)
-        - lancer la v1 sans les server.c, chatbot.c 
         
         Q:
             - est ce que le server.c doit etre packagé avec le reste ? il y aura du code privé dedans (radio) 

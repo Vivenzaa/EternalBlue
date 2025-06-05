@@ -9,7 +9,7 @@
 
 int KarmineAPI_timeto(char **streamer, int current_time, char wantsStart)
 {
-    log4c("Fetching API datas of La Prestigieuse...");
+    log4c(0, "Fetching API datas of La Prestigieuse...");
     system("curl --libcurl /var/tmp/Karmine/KAPI.c -X GET https://api2.kametotv.fr/karmine/group_a -o /var/tmp/Karmine/api.json");
     FILE *fichier = fopen("/var/tmp/Karmine/api.json", "r");
     char tmp[SizeOfFile("/var/tmp/Karmine/api.json")];
@@ -19,9 +19,9 @@ int KarmineAPI_timeto(char **streamer, int current_time, char wantsStart)
     if (useless == NULL) { 
         const char *error_ptr = cJSON_GetErrorPtr(); 
         if (error_ptr != NULL) { 
-            log4c("Couldn't fetch Karmine's API data");
+            log4c(2, "Couldn't fetch Karmine's API data");
         }
-        log4c("json file is NULL, aborting...");
+        log4c(2, "json file is NULL, aborting...");
         *streamer = NULL;
         cJSON_Delete(useless);
         return 0;
@@ -34,7 +34,7 @@ int KarmineAPI_timeto(char **streamer, int current_time, char wantsStart)
         cJSON *upcomming = cJSON_GetArrayItem(json, i);
         if(upcomming == NULL)
         {
-            log4c("upcomming is NULL, aborting...");
+            log4c(2, "upcomming is NULL, aborting...");
             *streamer = NULL;
             cJSON_Delete(useless);
             return 0;
@@ -98,7 +98,7 @@ char YTAPI_Get_Recent_Videos(unsigned int max, char *google_api_key)          //
         if (json == NULL) { 
             const char *error_ptr = cJSON_GetErrorPtr(); 
             if (error_ptr != NULL) { 
-                log4c((char *)error_ptr); 
+                log4c(2, (char *)error_ptr); 
                 return -1;
             } 
             cJSON_Delete(json); 
@@ -110,7 +110,7 @@ char YTAPI_Get_Recent_Videos(unsigned int max, char *google_api_key)          //
         if (errorArray)
         {
             cJSON *errorstring = cJSON_GetObjectItemCaseSensitive(errorArray, "reason");
-            log4c("YTAPI_Get_Recent_Videos: Request failed: %s", errorstring->valuestring);
+            log4c(2, "YTAPI_Get_Recent_Videos: Request failed: %s", errorstring->valuestring);
             cJSON_Delete(json);
             return -1;
         }
@@ -131,7 +131,7 @@ char YTAPI_Get_Recent_Videos(unsigned int max, char *google_api_key)          //
     }
     else
     {
-        log4c("requested video number exceeded 20, assuming there was a problem with a video...");
+        log4c(2, "requested video number exceeded 20, assuming there was a problem with a video...");
         return -1;
     }
         
@@ -160,7 +160,7 @@ char *YTAPI_Get_Video_Name(char * restrict videoId, char * restrict google_api_k
     if (json == NULL) { 
         const char *error_ptr = cJSON_GetErrorPtr(); 
         if (error_ptr != NULL) { 
-            log4c((char *)error_ptr); 
+            log4c(2, (char *)error_ptr); 
             return NULL;
         } 
         cJSON_Delete(json); 
@@ -169,7 +169,7 @@ char *YTAPI_Get_Video_Name(char * restrict videoId, char * restrict google_api_k
     cJSON *error = cJSON_GetObjectItemCaseSensitive(json, "error");
     if (error)
     {
-        log4c("YTAPI_Get_Video_Name: Request failed: %s", error->valuestring);
+        log4c(2, "YTAPI_Get_Video_Name: Request failed: %s", error->valuestring);
         cJSON_Delete(json);
         return NULL;
     }
@@ -181,6 +181,7 @@ char *YTAPI_Get_Video_Name(char * restrict videoId, char * restrict google_api_k
 
     char *toReturn = malloc(strlen(title->valuestring) + 1);
     strcpy(toReturn, title->valuestring);
+    replace_slashes(toReturn);
 
     cJSON_Delete(json);
     return toReturn;
@@ -195,13 +196,13 @@ void TTV_API_revoke_access_token(char * restrict access, char * restrict bot_id)
     "-H 'Content-Type: application/x-www-form-urlencoded' -d 'client_id=%s&token=%s'", bot_id, access);
     system(tmp);
 
-    log4c("Revoked token %s", access);
+    log4c(0, "Revoked token %s", access);
 }
 
 
 void TTV_API_refresh_access_token(char * restrict bot_id, char * restrict bot_secret, char ** restrict refresh_token, char ** restrict token)
 {
-    log4c("refreshing TwitchAPI tokens...");
+    log4c(0, "refreshing TwitchAPI tokens...");
     {
     char tmp[316+38];      // request len(184) + refresh token len(51) + BOT_ID len(31) + BOT_SECRET len(31) + \0
     snprintf(tmp, sizeof(tmp), 
@@ -219,7 +220,7 @@ void TTV_API_refresh_access_token(char * restrict bot_id, char * restrict bot_se
     if (json == NULL) { 
         const char *error_ptr = cJSON_GetErrorPtr(); 
         if (error_ptr != NULL)
-            log4c((char *)error_ptr); 
+            log4c(2, (char *)error_ptr); 
         
         fclose(fichier);
         cJSON_Delete(json); 
@@ -229,7 +230,7 @@ void TTV_API_refresh_access_token(char * restrict bot_id, char * restrict bot_se
     cJSON *error = cJSON_GetObjectItemCaseSensitive(json, "error");
     if (error)
     {
-        log4c("request failed with code %d", error->valueint);
+        log4c(2, "request failed with code %d", error->valueint);
         return;
     }
     cJSON *access = cJSON_GetObjectItemCaseSensitive(json, "access_token");
@@ -265,7 +266,7 @@ void TTV_API_get_stream_info(char * restrict access, char * restrict channel_nam
     if (json == NULL) { 
         const char *error_ptr = cJSON_GetErrorPtr(); 
         if (error_ptr != NULL) { 
-            log4c((char *)error_ptr); 
+            log4c(2, (char *)error_ptr); 
             return;
         } 
         cJSON_Delete(json); 
@@ -274,7 +275,7 @@ void TTV_API_get_stream_info(char * restrict access, char * restrict channel_nam
     cJSON *error = cJSON_GetObjectItemCaseSensitive(json, "error");
     if (error)
     {
-        log4c("Request failed: %s", error->valuestring);
+        log4c(2, "Request failed: %s", error->valuestring);
         cJSON_Delete(json);
         return;
     }
@@ -309,6 +310,7 @@ void TTV_API_update_stream_info(char * restrict streamerId, char * restrict acce
     char tmp[1024+36];
     char titleRediff[strlen(title) + 14];
     strcpy(titleRediff, title);
+    recover_slashes(titleRediff);
     titleRediff[strlen(title) - 4] = '\0';
     strcat(titleRediff, " - [REDIFFUSION]");
     snprintf(tmp, sizeof(tmp), "    curl --libcurl /var/tmp/Karmine/TTV_USI.c -X PATCH 'https://api.twitch.tv/helix/channels?broadcaster_id=%s' "
@@ -324,10 +326,10 @@ void TTV_API_update_stream_info(char * restrict streamerId, char * restrict acce
     cJSON *json = cJSON_Parse(tmp);
     cJSON *error = cJSON_GetObjectItemCaseSensitive(json, "error");
     if (error)
-        log4c("Request failed to update stream informations: %d: %s", error->valueint, error->valuestring);
+        log4c(2, "Request failed to update stream informations: %d: %s", error->valueint, error->valuestring);
     
     else
-        log4c("Updated stream infos to game_id: %d and title %s", gameId, titleRediff);
+        log4c(1, "Updated stream infos to game_id: %d and title %s", gameId, titleRediff);
     
     cJSON_Delete(json);
 }
@@ -405,12 +407,12 @@ int TTV_API_get_app_token(char * restrict bot_id, char * restrict bot_secret, ch
     FILE *fichier = fopen("/tmp/Karmine/appresponse.json", "r");
     fread(tmp, 1, sizeof(tmp), fichier);
     fclose(fichier);
-    remove("/tmp/Karmine/appresponse.json");
+    //remove("/tmp/Karmine/appresponse.json");
     cJSON *json = cJSON_Parse(tmp);
     if (json == NULL) { 
         const char *error_ptr = cJSON_GetErrorPtr(); 
         if (error_ptr != NULL) { 
-            log4c((char *)error_ptr); 
+            log4c(2, (char *)error_ptr); 
             return -1;
         } 
         cJSON_Delete(json);
@@ -420,7 +422,7 @@ int TTV_API_get_app_token(char * restrict bot_id, char * restrict bot_secret, ch
     cJSON *error = cJSON_GetObjectItemCaseSensitive(json, "error");
     if (error)
     {
-        log4c("Request failed: %s", error->valuestring);
+        log4c(2, "Request failed: %s", error->valuestring);
         cJSON_Delete(json);
         return -1;
     }
@@ -429,6 +431,7 @@ int TTV_API_get_app_token(char * restrict bot_id, char * restrict bot_secret, ch
     cJSON *app_token = cJSON_GetObjectItemCaseSensitive(json, "access_token");
     cJSON *expire = cJSON_GetObjectItemCaseSensitive(json, "expires_in");
     
+    printf("%s\n", app_token->valuestring);
     strcpy(*token, app_token->valuestring);
     int ret = expire->valueint;
     if(ret >= 1300000)
@@ -471,9 +474,9 @@ void TTV_API_fetch_results(char *game, result_info_t array[])
     if (useless == NULL) { 
         const char *error_ptr = cJSON_GetErrorPtr(); 
         if (error_ptr != NULL) { 
-            log4c("Couldn't fetch Karmine's API data");
+            log4c(2, "Couldn't fetch Karmine's API data");
         }
-        log4c("json file is NULL, aborting...");
+        log4c(2, "json file is NULL, aborting...");
         cJSON_Delete(useless);
         return;
     }
@@ -488,7 +491,7 @@ void TTV_API_fetch_results(char *game, result_info_t array[])
         cJSON *current = cJSON_GetArrayItem(json, i);
         if(current == NULL)
         {
-            log4c("upcomming is NULL, aborting...");
+            log4c(2, "upcomming is NULL, aborting...");
             cJSON_Delete(useless);
             break;
         }

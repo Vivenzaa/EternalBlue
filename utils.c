@@ -15,6 +15,7 @@
 
 
 const ver_t version = {1, 1, 1};
+char logDepth;
 
 
 void itos(int N, char *str) 
@@ -45,8 +46,10 @@ void itos(int N, char *str)
 }
 
 
-void log4c(char *base, ...)
+void log4c(char logtype, char *base, ...)
 {
+    if (logtype > logDepth || !logtype)
+        return;
     char *prev = base;
     char *current = strchr(base, '%');
     char *word = NULL;
@@ -115,7 +118,31 @@ void log4c(char *base, ...)
     strftime(timeString, sizeof(timeString), "%x %H:%M:%S", time_info);
 
     FILE *fichier = fopen("/var/tmp/Karmine/console.log", "a");
-    fprintf(fichier, "[%s] %s\n", timeString, payload_str);
+    char logtype_str[8];
+
+    switch(logtype)
+    {
+        case 0:
+            strcpy(logtype_str, "[DEBUG]");
+            break;
+
+        case 1:
+            strcpy(logtype_str, "[INFO]");
+            break;
+
+        case 2:
+            strcpy(logtype_str, "[WARN]");
+            break;
+
+        case 3:
+            strcpy(logtype_str, "[ERROR]");
+            break;
+
+        default:
+            logtype_str[0] = '\0';
+    }
+
+    fprintf(fichier, "[%s]%s\t%s\n", timeString, logtype_str, payload_str);
     
     va_end(list);
     free(payload_str);
@@ -206,7 +233,7 @@ int getGame(char *title, char ***wordlist)
             isFound = strstr(titleLowered, wordlist[i][j]);
             if (isFound)
             {
-                log4c("found game: %s in title %s", wordlist[i][0], title);
+                log4c(0, "found game: %s in title %s", wordlist[i][0], title);
                 return i;
             }
             j++;
@@ -214,14 +241,14 @@ int getGame(char *title, char ***wordlist)
         j = 0;
         i++;
     }
-    log4c("Couln't find game for title %s, defaulting to \"Special Event\"...", title);
+    log4c(2, "Couln't find game for title %s, defaulting to \"Special Event\"...", title);
     return 0;
 }
 
 
 char *get_metadata(char *filename)
 {
-    log4c("fetching metadatas of %s...", filename);
+    log4c(0, "fetching metadatas of %s...", filename);
     AVFormatContext *fmt_ctx = NULL;
     AVDictionaryEntry *tag = NULL;
     avformat_open_input(&fmt_ctx, filename, NULL, NULL);
@@ -234,7 +261,7 @@ char *get_metadata(char *filename)
             return toReturn;
         }
     }
-    log4c("couldn't get metadatas of %s...", filename);
+    log4c(2, "couldn't get metadatas of %s...", filename);
     return 0;
 }
 
@@ -246,17 +273,17 @@ void write_metadata(char * restrict filename, char * restrict toWrite)  // thx t
     AVFormatContext *out_ctx = NULL;
 
     if (avformat_open_input(&fmt_ctx, filename, NULL, NULL) < 0) {
-        log4c("Erreur : Impossible d'ouvrir le fichier dans lequel écrire les métadonnées");
+        log4c(3, "Erreur : Impossible d'ouvrir le fichier dans lequel écrire les métadonnées");
         exit(1);
     }
 
-    log4c("write_metadata: writing metadata on file...");
+    log4c(0, "write_metadata: writing metadata on file...");
     avformat_alloc_output_context2(&out_ctx, NULL, NULL, output);
     for (unsigned int i = 0; i < fmt_ctx->nb_streams; i++) {
         AVStream *in_stream = fmt_ctx->streams[i];
         AVStream *out_stream = avformat_new_stream(out_ctx, NULL);
         if (!out_stream) {
-            log4c("Erreur : Impossible de copier le flux");
+            log4c(3, "Erreur : Impossible de copier le flux");
             avformat_close_input(&fmt_ctx);
             avformat_free_context(out_ctx);
             exit(1);
@@ -269,7 +296,7 @@ void write_metadata(char * restrict filename, char * restrict toWrite)  // thx t
 
     if (!(out_ctx->oformat->flags & AVFMT_NOFILE)) {
         if (avio_open(&out_ctx->pb, output, AVIO_FLAG_WRITE) < 0) {
-            log4c("write_metadata : Impossible d'ouvrir le fichier de sortie");
+            log4c(3, "write_metadata : Impossible d'ouvrir le fichier de sortie");
             avformat_close_input(&fmt_ctx);
             avformat_free_context(out_ctx);
             exit(1);
@@ -278,7 +305,7 @@ void write_metadata(char * restrict filename, char * restrict toWrite)  // thx t
 
 
     if (avformat_write_header(out_ctx, NULL) < 0) {
-        log4c("write_metadata : Impossible d'écrire l'en-tête");
+        log4c(3, "write_metadata : Impossible d'écrire l'en-tête");
         avformat_close_input(&fmt_ctx);
         avformat_free_context(out_ctx);
         exit(1);
@@ -296,7 +323,7 @@ void write_metadata(char * restrict filename, char * restrict toWrite)  // thx t
         pkt.pos = -1;
 
         if (av_interleaved_write_frame(out_ctx, &pkt) < 0) {
-            log4c("write_metadata : Impossible d'écrire un paquet");
+            log4c(3, "write_metadata : Impossible d'écrire un paquet");
             break;
         }
         av_packet_unref(&pkt);
@@ -312,7 +339,7 @@ void write_metadata(char * restrict filename, char * restrict toWrite)  // thx t
     avformat_close_input(&fmt_ctx);
 
     remove(filename);
-    log4c("write_metadata: successfully added metadata to file...");
+    log4c(0, "write_metadata: successfully added metadata to file...");
 }
 
 
@@ -328,14 +355,14 @@ char **getAllFiles(char *local_path)
         if (strlen(de->d_name) <= 3)     continue;
         char *line = malloc(strlen(de->d_name) + 1);
         if (!line) {
-            log4c("getAllFiles : allocation mémoire échouée");
+            log4c(3, "getAllFiles : allocation mémoire échouée");
             exit(EXIT_FAILURE);
         }
         strcpy(line, de->d_name);
 
         char **temp = realloc(lines, sizeof(char *) * (count + 1));
         if (!temp) {
-            log4c("getAllFiles : allocation mémoire échouée");
+            log4c(3, "getAllFiles : allocation mémoire échouée");
             exit(EXIT_FAILURE);
         }
         lines = temp;
@@ -345,7 +372,7 @@ char **getAllFiles(char *local_path)
     
     char **temp = realloc(lines, sizeof(char *) * (count + 1));
     if (!temp) {
-        log4c("getAllFiles : allocation mémoire échouée");
+        log4c(3, "getAllFiles : allocation mémoire échouée");
         exit(EXIT_FAILURE);
     }
     lines = temp;
@@ -366,7 +393,7 @@ char **file_lines(char *filename) {
     while (fgets(buffer, 256, fichier)) {
         char *line = malloc(strlen(buffer) + 1);
         if (!line) {
-            log4c("file_lines : allocation mémoire échouée");
+            log4c(3, "file_lines : allocation mémoire échouée");
             exit(EXIT_FAILURE);
         }
         strcpy(line, buffer);
@@ -374,7 +401,7 @@ char **file_lines(char *filename) {
 
         char **temp = realloc(lines, sizeof(char *) * (count + 1));
         if (!temp) {
-            log4c("file_lines : allocation mémoire échouée");
+            log4c(3, "file_lines : allocation mémoire échouée");
             exit(EXIT_FAILURE);
         }
         lines = temp;
@@ -384,7 +411,7 @@ char **file_lines(char *filename) {
     
     char **temp = realloc(lines, sizeof(char *) * (count + 1));
     if (!temp) {
-        log4c("file_lines : allocation mémoire échouée");
+        log4c(3, "file_lines : allocation mémoire échouée");
         exit(EXIT_FAILURE);
     }
     lines = temp;
@@ -428,7 +455,7 @@ long convert_to_timestamp(char *datetime) {     // converts YYYY-MM-DDThh:mm:ss.
 
     time_t timestamp = timegm(&tm);
     if (timestamp == -1) {
-        log4c("convert_to_timestamp : Conversion en timestamp échouée. str given : %s, after processing : %s", datetime, temp);
+        log4c(2, "convert_to_timestamp : Conversion en timestamp échouée. str given : %s, after processing : %s", datetime, temp);
         return -1;
     }
 
@@ -438,10 +465,10 @@ long convert_to_timestamp(char *datetime) {     // converts YYYY-MM-DDThh:mm:ss.
 
 void *cmdRunInThread(void *str)
 {
-    log4c("launching main ffmpeg");
+    log4c(0, "launching main ffmpeg");
     const char *cmd = (const char *)str;
     system(cmd);
-    log4c("main ffmpeg has ended");
+    log4c(0, "main ffmpeg has ended");
     return NULL;
 }
 
@@ -508,12 +535,12 @@ int get_undownloaded_videos(char * restrict local_path, char * restrict google_a
     free(fullLink);
 
     int i = 1;
-    log4c("get_undownloaded_videos: fetching most recent videos...");
+    log4c(0, "get_undownloaded_videos: fetching most recent videos...");
     while (i < 9999)
     {
         if (YTAPI_Get_Recent_Videos(i, google_api_key) != 0)
         {
-            log4c("Couldn't get url list, aborting download...");
+            log4c(2, "Couldn't get url list, aborting download...");
             return 0;
         }
         FILE *tmpVids = fopen("/tmp/Karmine/recentVids", "r");
@@ -612,7 +639,7 @@ void get_env_filepath(char *buffer, unsigned int size) {
     char path[512];
     const char *home = getenv("HOME");
     if (!home) {
-        log4c("Erreur : variable d'environnement HOME non définie");
+        log4c(3, "Erreur : variable d'environnement HOME non définie");
         exit(1);
     }
 
@@ -629,7 +656,7 @@ int get_env_infos(char * restrict filepath, char * restrict stream_key, char * r
     char line[256];
     char *vars[] = {stream_key, bot_id, bot_secret, refresh_token, gapi_key, lpath, channel};
 
-    log4c("Fetching API keys from config file...");
+    log4c(0, "Fetching API keys from config file...");
     for (int i = 0; i < 7; i++)
     {
         if(!fgets(line, sizeof(line), file)) return 0;
@@ -688,6 +715,30 @@ int askSave_env_infos(char *filepath) {
     fprintf(file, "TTV_NAME=%s\n", channel);
     fclose(file);
 
-    log4c("Clés API enregistrées dans %s\n", filepath);
+    log4c(0, "Clés API enregistrées dans %s\n", filepath);
     return 1;
+}
+
+
+void replace_slashes(char * s)
+{
+    char *tmp = s;
+    while (tmp)
+    {
+        tmp = strchr(tmp, '/');
+        if (tmp)
+            tmp[0] = '~';
+    }
+}
+
+
+void recover_slashes(char * s)
+{
+    char *tmp = s;
+    while (tmp)
+    {
+        tmp = strchr(tmp, '~');
+        if (tmp)
+            tmp[0] = '/';
+    }
 }
