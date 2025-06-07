@@ -1,5 +1,5 @@
-#include "APIs.h"
-#include "utils.h"
+#include    "../include/APIs.h"
+#include    "../include/utils.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -407,7 +407,7 @@ int TTV_API_get_app_token(char * restrict bot_id, char * restrict bot_secret, ch
     FILE *fichier = fopen("/tmp/Karmine/appresponse.json", "r");
     fread(tmp, 1, sizeof(tmp), fichier);
     fclose(fichier);
-    //remove("/tmp/Karmine/appresponse.json");
+    remove("/tmp/Karmine/appresponse.json");
     cJSON *json = cJSON_Parse(tmp);
     if (json == NULL) { 
         const char *error_ptr = cJSON_GetErrorPtr(); 

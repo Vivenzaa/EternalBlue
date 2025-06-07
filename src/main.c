@@ -1,5 +1,5 @@
-    #include "APIs.h"
-    #include "utils.h"
+    #include "../include/APIs.h"
+    #include "../include/utils.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,6 +15,7 @@
 
 
 #define SEED 0xb00b5
+#define DB_PATH "/var/tmp/K24/videos.db"
 
 char *STREAM_KEY = NULL;
 char *BOT_ID = NULL;

@@ -1,6 +1,8 @@
 #ifndef utils_H
 #define utils_H
 
+#include <sqlite3.h>
+
 typedef struct ffdata
 {
     char *videopath;
@@ -17,6 +19,7 @@ extern const ver_t version;
 extern char logDepth;
 
 char get_utc_offset();
+char fileExists(char *path);
 char *curl_filename(char *ptr);
 char *get_metadata(char *filename);
 char **file_lines(char *filename);
@@ -41,5 +44,9 @@ void write_metadata(char * restrict filename, char * restrict toWrite);
 void *cmdRunInThread(void *str);
 void recover_slashes(char * s);
 void replace_slashes(char * s);
+//char recurFreeN(void *array, int n);     // where n is the array's depth
+//int sql_callback(void *res, int argc, char **argv, char **azColName);
+//sqlite3 *init_db(char *path);
+
 
 #endif
