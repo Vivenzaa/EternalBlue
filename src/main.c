@@ -1,5 +1,6 @@
     #include "../include/APIs.h"
     #include "../include/utils.h"
+    #include "../include/sql.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,89 +12,115 @@
 #include <cjson/cJSON.h>
 #include <time.h>
 #include <errno.h>
+#include <sqlite3.h>
 // #include <signal.h>
 
 
 #define SEED 0xb00b5
-#define DB_PATH "/var/tmp/K24/videos.db"
+#define DB_PATH "/home/vivenza/.K24/videos.db"
 
-char *STREAM_KEY = NULL;
-char *BOT_ID = NULL;
-char *BOT_SECRET = NULL;
-char *DEFAULT_REFRESH_TOKEN = NULL;
-char *GOOGLE_API_KEY = NULL;
-char *LOCAL_PATH = NULL;
-char *CHANNEL_NAME = NULL;
+char STREAM_KEY[64];
+char BOT_ID[64];
+char BOT_SECRET[64];
+char DEFAULT_REFRESH_TOKEN[64];
+char GOOGLE_API_KEY[64];
+char LOCAL_PATH[64];
+char CHANNEL_NAME[64];
+char ***WORDLIST = NULL;
 
 unsigned long *settings = NULL;
-
 int isDownloaded = 0;
 
 
-void *download_videos(void* _useless)
+void *download_videos(void* useless __attribute__((unused)))
 {
-    char **videos = file_lines("/tmp/Karmine/recentVids");
-    remove("/tmp/Karmine/recentVids");
+    char **videos = file_lines("/tmp/K24/recentVids");
+    remove("/tmp/K24/recentVids");
     char tmp[256];
     log4c(1, "Downloading %d video(s)...", size_of_double_array(videos));
     for (int i = size_of_double_array(videos) - 1; i >= 0; i--)
     { 
         log4c(1, "Downloading %s...", videos[i]);
-        system("mkdir /tmp/Karmine/ytdlp");
+        system("mkdir /tmp/K24/ytdlp");
 
-        snprintf(tmp, sizeof(tmp), "yt-dlp --cookies-from-browser firefox -r %ld -f 299+140 %s%s -P /tmp/Karmine/ytdlp/", 3000000 * !settings[8] + settings[8],  "https://www.youtube.com/watch?v=" + (32 * (videos[i][0] != '-')), videos[i]);
+        snprintf(tmp, sizeof(tmp), "yt-dlp --cookies-from-browser firefox -r %ld -f 299+140 %s%s -P /tmp/K24/ytdlp/", 3000000 * !settings[8] + settings[8],  "https://www.youtube.com/watch?v=" + (32 * (videos[i][0] != '-')), videos[i]);
         int ret = system(tmp);
         if(ret)
         {
             log4c(2, "yt-dlp couldn't download specified video, trying to resolve...");
-            system("pip install yt-dlp -U --break-system-packages");
-            snprintf(tmp, sizeof(tmp), "yt-dlp --cookies-from-browser firefox --merge-output-format mp4 --extractor-args \"youtube:player-client=default,-tv,web_safari,web_embedded\" -r %ld %s%s -P /tmp/Karmine/ytdlp/", 3000000 * !settings[8] + settings[8], "https://www.youtube.com/watch?v=" + (32 * (videos[i][0] != '-')), videos[i]);
+            system("pip install yt-dlp -U --break-system-packages");                                 // -f 137+140
+            snprintf(tmp, sizeof(tmp), "yt-dlp --cookies-from-browser firefox --merge-output-format mp4  --extractor-args \"youtube:player-client=default,-tv,web_safari,web_embedded\" -r %ld %s%s -P /tmp/K24/ytdlp/", 3000000 * !settings[8] + settings[8], "https://www.youtube.com/watch?v=" + (32 * (videos[i][0] != '-')), videos[i]);
             system(tmp);
         }
-
-        char *videoTitle = YTAPI_Get_Video_Name(videos[i], GOOGLE_API_KEY);
+        char *videoTitle = malloc(1);
+        char uploadDate[32];
+        YTAPI_Get_Video_infos(&videoTitle, uploadDate, videos[i], GOOGLE_API_KEY);
+        if(!(videoTitle && uploadDate[0]))
+            log4c(2, "couldn't find title or upload date for %s", videos[i]);
         log4c(1, "Successfully downloaded %s : %s", videos[i], videoTitle);
 
-        char videotmp[strlen(videoTitle) + 5];
-        strcpy(videotmp, videoTitle);
-        strcat(videotmp, ".mp4");
+
+        //use_db
+        {
+            sqlite3 *db = init_db(DB_PATH);
+            char *sql = "INSERT INTO videos (title, date, yt_id, game, localpath, duration) VALUES (?, ?, ?, ?, ?, ?);";
+            sqlite3_stmt *stmt;
+            sqlite3_prepare_v2(db, sql, -1, &stmt, 0);
+
+    
+            char *nbpath = NULL;
+            sqlite3_exec(db, "SELECT uid FROM videos ORDER BY(uid) DESC LIMIT(1);", sql_callback_monores, &nbpath, NULL);
+            int inbpath = atoi(nbpath);
+            inbpath++;
+            
+            nbpath = realloc(nbpath, strlen(nbpath)+2);
+            itos(inbpath, nbpath);
+
+            char videopath[128];
+            strcpy(videopath, LOCAL_PATH);
+            strcat(videopath, nbpath);
+            strcat(videopath, ".mp4");
+
+            snprintf(tmp, sizeof(tmp), "mv /tmp/K24/ytdlp/* %s", videopath);
+            system(tmp);
+
+            sqlite3_bind_text(stmt, 1, videoTitle, -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(stmt, 2, uploadDate, -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(stmt, 3, videos[i], -1, SQLITE_TRANSIENT);
+            if (getGame(videoTitle, WORDLIST))
+                sqlite3_bind_text(stmt, 4, WORDLIST[getGame(videoTitle, WORDLIST)][0], -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(stmt, 5, videopath, -1, SQLITE_TRANSIENT);
+            sqlite3_bind_int(stmt, 6, get_video_duration(videopath));
+
+            int rc = sqlite3_step(stmt);
+            if (rc != SQLITE_DONE) 
+                log4c(2, "download_videos: Execution failed: %s", sqlite3_errmsg(db));
+             else 
+                log4c(0, "download_videos: Insertion réussie");
+
+            free(nbpath);
+            sqlite3_finalize(stmt);
+            sqlite3_close(db);
+        }
         free(videoTitle);
-
-        snprintf(tmp, sizeof(tmp), "mv /tmp/Karmine/ytdlp/* \"/tmp/Karmine/%s\"", videotmp);
-        system(tmp);
-        system("rm -r /tmp/Karmine/ytdlp");
-
-        char *fullLink = malloc(32 + strlen(videos[i]) + 1);
-        strcpy(fullLink, "https://www.youtube.com/watch?v=");
-        strcat(fullLink, videos[i]);
-
-        log4c(0, "writing metadata to %s", videotmp);
-
-        snprintf(tmp, sizeof(tmp), "/tmp/Karmine/%s", videotmp);
-        write_metadata(tmp, fullLink);
-        free(fullLink);
-        char moov[512];
-        snprintf(moov, sizeof(moov), "mv /tmp/Karmine/30784230304235.mp4 \"./%s%s\"", LOCAL_PATH, videotmp);
-        system(moov);
     }
 
     recur_free(videos);
     log4c(1, "Successfully downloaded all recent videos.");
     isDownloaded = 1;
 
-    return _useless;
+    return NULL;
 }
-
+//db __ok
 
 void *ffwrite(void *data)
 {
     ffdata *pathfifo = (ffdata *)data;
 
     char cmdFIFO[51 +
-                 strlen(LOCAL_PATH) +
-                 strlen(pathfifo->videopath)];
+                strlen(pathfifo->videopath)];
 
-    snprintf(cmdFIFO, sizeof(cmdFIFO), "ffmpeg -hide_banner -re -i \"%s%s\" -c copy -f mpegts -", LOCAL_PATH, pathfifo->videopath);
+    snprintf(cmdFIFO, sizeof(cmdFIFO), "ffmpeg -hide_banner -re -i \"%s\" -c copy -f mpegts -", pathfifo->videopath);
 
     log4c(0, "ffwrite: launching command: %s", cmdFIFO);
 
@@ -137,31 +164,31 @@ void *ffwrite(void *data)
 
     return NULL;
 }
-
+//db __ok
 
 void handleArgs(char **argv, int argc, unsigned long *settings, char **knownArgs)
 {
-    for (int i = 1; i < argc; i++)
+    for (int i = 1; i < argc; i++)      // ce "for" parcourt tous les arguments donnés au programme
     {
-        for (unsigned int ii = 0; ii < size_of_double_array(knownArgs); ii++)
+        for (unsigned int j = 0; j < size_of_double_array(knownArgs); j++)   // ce "for" parcourt toutes les possibilités d'arguments
         {
-            if (!strcmp(argv[i], knownArgs[ii]))
+            if (!strcmp(argv[i], knownArgs[j]))
             {
-                if (ii >= 6 && ii < size_of_double_array(knownArgs))
+                if (argv[i][1] != '-' && j < size_of_double_array(knownArgs))   // si cet argument n'est pas un booleen (--argument)
                 {
                     if (i + 1 >= argc)
                         break;
-                    settings[ii] = atoi(argv[i + 1]);
+                    settings[j] = atoi(argv[i + 1]);
                     i++;
                     break;
                 }
-                settings[ii] = 1;
+                settings[j] = 1;
                 break;
             }
         }
     }
 }
-
+//db __ok
 
 void intHandler()
 {
@@ -174,22 +201,22 @@ int main(int argc, char **argv)
 {
     setlocale(LC_ALL, "fr_FR.UTF-8");
     
-    char *knownArgs[] = {"--help", "--enable-chatbot", "--enable-monitoring-server", "--full-fflog", "--log-current-token", "--keep-after-read", "-loglevel", "-logretention", "-dlspeed", "--configure"};
+    char *knownArgs[] = {"--help", "--enable-chatbot", "--enable-monitoring-server", "--full-fflog", "--log-current-token", "--keep-after-read", "--configure", "-loglevel", "-dlspeed"};
     settings = calloc(sizeof(knownArgs) / sizeof(char *), sizeof(unsigned long));
     handleArgs(argv, argc, settings, knownArgs);
-    logDepth = settings[6];
+    logDepth = settings[7];
 
     
     if (settings[0])
     {
         printf("list of args : \n"
                "\t--help :                          affiche cette page\n"
-               //"\t--enable-chatbot :               enables twitch chatbot, prediction handling etc\n"
+        //~75% achived for beta       //"\t--enable-chatbot :               enables twitch chatbot, prediction handling etc\n"
                "\t--enable-monitoring-server :      enables monitoring via https url\n"
                "\t--full-fflog :                    allow creation of ff.log\n"
                "\t--log-current-token               UNSECURE : logs current access and app token in console.log\n"
-               //"\t--log-retention x hours          how many time before logs completely delete\n"
-               //"\t--keep-after-read                keeps videos on the machine after downloading/reading them\n"
+        //0% achieved       //"\t--log-retention x hours          how many time before logs completely delete\n"
+        //~80% achieved       //"\t--keep-after-read                keeps videos on the machine after downloading/reading them\n"
                "\t-loglevel [0,1,2,3]               how precise you want logs to be :\n"
                "\t    0: no logs at all\n"
                "\t    1: only infos\n"
@@ -201,22 +228,14 @@ int main(int argc, char **argv)
         exit(0);
     }
 
-    STREAM_KEY = malloc(47);                //init_array_cheat(STREAM_KEY, 47);
-    BOT_ID = malloc(31);                    //init_array_cheat(BOT_ID, 31);
-    BOT_SECRET = malloc(31);                //init_array_cheat(BOT_SECRET, 31);
-    DEFAULT_REFRESH_TOKEN = malloc(51);     //init_array_cheat(DEFAULT_REFRESH_TOKEN, 51);
-    GOOGLE_API_KEY = malloc(40);            //init_array_cheat(GOOGLE_API_KEY, 40);
-    LOCAL_PATH = malloc(256);               //init_array_cheat(LOCAL_PATH, 256);
-    CHANNEL_NAME = malloc(128);             //init_array_cheat(CHANNEL_NAME, 128);
-
-    
+   
 
     {
         char envpath[512];
         get_env_filepath(envpath, sizeof(envpath));
 
-        get_env_infos(envpath, STREAM_KEY, BOT_ID, BOT_SECRET, DEFAULT_REFRESH_TOKEN, GOOGLE_API_KEY, LOCAL_PATH, CHANNEL_NAME);
-        if (settings[9] || !get_env_infos(envpath, STREAM_KEY, BOT_ID, BOT_SECRET, DEFAULT_REFRESH_TOKEN, GOOGLE_API_KEY, LOCAL_PATH, CHANNEL_NAME))
+        int r = get_env_infos(envpath, STREAM_KEY, BOT_ID, BOT_SECRET, DEFAULT_REFRESH_TOKEN, GOOGLE_API_KEY, LOCAL_PATH, CHANNEL_NAME);
+        if (settings[6] || !r)
         {
             askSave_env_infos(envpath);
             get_env_infos(envpath, STREAM_KEY, BOT_ID, BOT_SECRET, DEFAULT_REFRESH_TOKEN, GOOGLE_API_KEY, LOCAL_PATH, CHANNEL_NAME);
@@ -225,12 +244,12 @@ int main(int argc, char **argv)
         
         
 
-    system("rm -r /tmp/Karmine/");
-    system("rm -r /var/tmp/Karmine");
-    system("mkdir /tmp/Karmine");
-    system("mkdir /var/tmp/Karmine");
+    system("rm -r /tmp/K24/");
+    system("rm -r /var/tmp/K24");
+    system("mkdir /tmp/K24");
+    system("mkdir /var/tmp/K24");
     short current_time_offset = 0;
-    char ***WORDLIST = malloc(sizeof(char **) * 9);
+    WORDLIST = malloc(sizeof(char **) * 9);
     WORDLIST[0] = (char *[]){"kcx", NULL};
     WORDLIST[1] = (char *[]){"rocket league", "buts", "spacestation", "spin", "rlcs", "exotiik", "zen", "rl ", " rl", "moist esport", "complexity gaming", NULL};
     WORDLIST[2] = (char *[]){"tft", "canbizz", NULL};
@@ -263,18 +282,27 @@ restart:
     current_time_offset = get_utc_offset() * 3600;
 
     
-    char **playlist = getAllFiles(LOCAL_PATH);
-    char *WantsFFLogs = malloc(strlen("/var/tmp/Karmine/ff.log") * settings[3]      +       strlen("/dev/null") * (!settings[3]) + 1);
+    char **playlist = NULL;
+
+    //use_db
+    {
+        sqlite3 *db = init_db(DB_PATH);
+        sqlite3_exec(db, "SELECT localpath FROM videos;", sql_callback_doubleres, &playlist, NULL);
+        sqlite3_close(db);
+    }
+
+
+    char *WantsFFLogs = malloc(strlen("/var/tmp/K24/ff.log") * settings[3]      +       strlen("/dev/null") * (!settings[3]) + 1);
     char *video = playlist[chooseVideo(size_of_double_array(playlist), SEED)];
 
-    mkfifo("/tmp/Karmine/video_fifo", 0666);
+    mkfifo("/tmp/K24/video_fifo", 0666);
     if (settings[3])
-        strcpy(WantsFFLogs, "/var/tmp/Karmine/ff.log");
+        strcpy(WantsFFLogs, "/var/tmp/K24/ff.log");
     else
         strcpy(WantsFFLogs, "/dev/null");
     char ffmpegCmd[179 + strlen(WantsFFLogs)];
     snprintf(ffmpegCmd, sizeof(ffmpegCmd),
-            "ffmpeg -hide_banner -loglevel debug -re -i /tmp/Karmine/video_fifo "
+            "ffmpeg -hide_banner -loglevel debug -re -i /tmp/K24/video_fifo "
             "-c copy -bufsize 18000k "
             "-f flv rtmp://live.twitch.tv/app/%s > %s 2>&1",
             STREAM_KEY, WantsFFLogs);
@@ -287,11 +315,11 @@ restart:
     pthread_t ffmpegThreadId;
     pthread_create(&ffmpegThreadId, NULL, cmdRunInThread, (void *)ffmpegCmd);
 
-    int fifo_fd = open("/tmp/Karmine/video_fifo", 01);      // O_WRONLY
+    int fifo_fd = open("/tmp/K24/video_fifo", 01);      // O_WRONLY
 
     log4c(1, "checking for yt-dlp update...");
     system("pip install yt-dlp -U --break-system-packages");
-    if (get_undownloaded_videos(LOCAL_PATH, GOOGLE_API_KEY))
+    if (get_undownloaded_videos(GOOGLE_API_KEY))
     {
         pthread_t downloaderThr;
         pthread_create(&downloaderThr, NULL, download_videos, NULL);
@@ -309,32 +337,58 @@ restart:
             log4c(0, "refreshed Twitch token to %s", access_token);
         
         char *streamer_id = TTV_API_get_user_id(access_token, CHANNEL_NAME, BOT_ID);
-        char *curl_name = curl_filename(video);
+        char *raw_title = NULL;
+
+        {
+            sqlite3 *db = init_db(DB_PATH);
+            char *sql = "SELECT title FROM videos WHERE localpath LIKE ?;";
+            sqlite3_stmt *stmt;
+            sqlite3_prepare_v2(db, sql, -1, &stmt, 0);
+
+            sqlite3_bind_text(stmt, 1, video, -1, SQLITE_TRANSIENT);
+            if (sqlite3_step(stmt) == SQLITE_ROW)
+            {
+                raw_title = malloc(strlen((char *)sqlite3_column_text(stmt, 0)) + 1);
+                strcpy(raw_title, (char *)sqlite3_column_text(stmt, 0));
+            }
+                
+
+            sqlite3_finalize(stmt);
+            sqlite3_close(db);
+        }
+
+        char *curl_name = curl_filename(raw_title);
         if (curl_name == NULL)
-            TTV_API_update_stream_info(streamer_id, access_token, CATEGORY_IDS[getGame(video, WORDLIST)], video, BOT_ID);
+            TTV_API_update_stream_info(streamer_id, access_token, CATEGORY_IDS[getGame(raw_title, WORDLIST)], raw_title, BOT_ID);
         else
         {
-            TTV_API_update_stream_info(streamer_id, access_token, CATEGORY_IDS[getGame(video, WORDLIST)], curl_name, BOT_ID);
+            TTV_API_update_stream_info(streamer_id, access_token, CATEGORY_IDS[getGame(curl_name, WORDLIST)], curl_name, BOT_ID);
             free(curl_name);
         }
         free(streamer_id);
+        free(raw_title);
 
         if (isDownloaded)
         {
             isDownloaded = 0;
             recur_free(playlist);
-            playlist = getAllFiles(LOCAL_PATH);
+            playlist = NULL;
+            {
+                sqlite3 *db = init_db(DB_PATH);
+                sqlite3_exec(db, "SELECT localpath FROM videos;", sql_callback_doubleres, &playlist, NULL);
+                sqlite3_close(db);
+            }
         }
-        int endtime = get_video_duration(video, LOCAL_PATH) + (int)time(NULL) + current_time_offset;
+        int endtime = get_video_duration(video) + (int)time(NULL) + current_time_offset;
         snprintf(tmp, sizeof(tmp), "Now playing %s, estimated end time : %02d:%02d:%02d", video, (endtime / 3600) % 24, (endtime / 60) % 60, endtime % 60);
         log4c(1, tmp);
 
         if (settings[2])
         {
             /*------------------------------------HANDLE WEB MONITORING-------------------------------------*/
-            log4c(0, "web_monitoring: getting self stream infos...");                                          //
+            log4c(0, "web_monitoring: getting self stream infos...");                                       //
             TTV_API_get_stream_info(access_token, CHANNEL_NAME, BOT_ID);                                    //
-            FILE *streamInfos = fopen("/tmp/Karmine/mntr.data", "r");                                       //
+            FILE *streamInfos = fopen("/tmp/K24/mntr.data", "r");                                           //
             char isOnline[8];                                                                               //
             char vwCount[6];                                                                                //
             fgets(isOnline, sizeof(isOnline), streamInfos);                                                 //
@@ -342,14 +396,14 @@ restart:
             fgets(tmp, sizeof(tmp), streamInfos);                                                           //
             fgets(vwCount, sizeof(vwCount), streamInfos);                                                   //
             fclose(streamInfos);                                                                            //
-            remove("/tmp/Karmine/mntr.data");                                                               //
+            remove("/tmp/K24/mntr.data");                                                                   //
                                                                                                             //
             streamInfos = fopen("/var/www/html/monitoring.json", "w");                                      //
             cJSON *json = cJSON_CreateObject();                                                             //
                                                                                                             //
             cJSON_AddStringToObject(json, "status", isOnline);                                              //
             cJSON_AddStringToObject(json, "videoTitle", video);                                             //
-            cJSON_AddNumberToObject(json, "videoDuration", (double)get_video_duration(video, LOCAL_PATH));  //
+            cJSON_AddNumberToObject(json, "videoDuration", (double)get_video_duration(video));              //
             cJSON_AddNumberToObject(json, "videoStartTime", (double)time(NULL) + current_time_offset);      //
             cJSON_AddNumberToObject(json, "streamStartTime", (double)timestart);                            //
             cJSON_AddNumberToObject(json, "viewers", (double)atoi(vwCount));                                //
@@ -366,7 +420,7 @@ restart:
             nextVideo = playlist[chooseVideo(size_of_double_array(playlist), SEED)];
     
         int KarmineToWait = KarmineAPI_timeto(&streamer, (int)time(NULL) + current_time_offset, 1);
-        if (KarmineToWait + (int)time(NULL) + current_time_offset <= (int)get_video_duration(nextVideo, LOCAL_PATH) + endtime) // if next match starts before next video ends (with one more minute)
+        if (KarmineToWait + (int)time(NULL) + current_time_offset <= (int)get_video_duration(nextVideo) + endtime) // if next match starts before next video ends (with one more minute)
         {
             pthread_join(ffThr, NULL); // wait until current video ends
             ffdata *data = malloc(sizeof(ffdata));
@@ -387,8 +441,8 @@ restart:
             free(raidValue);
             log4c(1, "Attempting to close stream...");
             pthread_join(ffThr, NULL);
-            log4c(3, "closing fifo_fd...");
-            system("echo q > /tmp/Karmine/video_fifo");
+            log4c(0, "closing fifo_fd...");
+            system("echo q > /tmp/K24/video_fifo");
             close(fifo_fd);
         wait_again:
             KarmineToWait = KarmineAPI_timeto(&streamer, time(NULL) + current_time_offset, 0);
@@ -407,7 +461,7 @@ restart:
             
 
             KarmineToWait = KarmineAPI_timeto(&streamer, time(NULL) + current_time_offset, 1);
-            int nextVidDuration = get_video_duration(nextVideo, LOCAL_PATH);
+            int nextVidDuration = get_video_duration(nextVideo);
 
             if (nextVidDuration > KarmineToWait)
             {
@@ -442,6 +496,19 @@ restart:
 
 
 /*  
+    finaliser l'implémentation de la base de données
+    ->  remplacer tout ce qui demande des requetes API inutiles
+        remplacer tout ce qui demande les métadonnées (normalement c'est fait)
+        remplacer les utilisations de getGame par une requete base de données
+        simplifier les requetes de base de données avec une fonction pour pas avoir à répéter le code 20x
+        maintenant on a le titre des vidéos avec la base de données donc on enlève la plupart des conversions
+        ne pas oublier que maintenant les vidéos on pour path leur id de base de données + .mp4
+        on peut maintenant commencer à implémenter le fait de rajouter une video qui fait un peu moins de la durée requise pour éviter les attentes avant match
+        implémenter le résultat des matchs dans la base de données (faudra ALTER TABLE)
+        bien checker tout TOUT le code pour voir si on peut pas foutre de la base de données à cet endroit la
+
+
+
     mettre un système d'interface semi-graphiques 
     créer un header web.c/h avec les fonctions web (qui seront utiles pour le serveur et pour tous les sources utilisant curl)
     trouver une solution pour le stack des videos (+1.2To actuellement, c cho)
@@ -449,9 +516,9 @@ restart:
             - possiblement un nombre de keep possible à passer en arguments
             - peut etre pouvoir spécifier de garder une seule catégorie 
             - si not keep, que faire en cas de video strike/mise en privée ou jsp, ce serait con de les perdre
-                - peut etre foutre les vidéos not keep sur une chaine youtube 
-                    - dans ce cas faut vite implémenter la base de donnée, on verifier si elle est sur la chaine custom, si oui on la prends la sinon sur la chaine offi
-        - compression ?  (on retarde juste le problème)
+                -> peut etre foutre les vidéos not keep sur une chaine youtube 
+                    -> dans ce cas faut vite implémenter la base de donnée, on verifier si elle est sur la chaine custom, si oui on la prends la sinon sur la chaine offi
+
 
 
     passer par popen pour éviter la création de fichiers temporaires pas super utiles

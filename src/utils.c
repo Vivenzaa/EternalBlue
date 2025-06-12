@@ -1,9 +1,8 @@
 #include    "../include/utils.h"
 #include    "../include/APIs.h"    
+#include    "../include/sql.h"
 #include <stdio.h>
 #include <stdlib.h>
-#include <libavformat/avformat.h>
-#include <dirent.h>
 #include <string.h>
 #include <ctype.h>
 #include <time.h>
@@ -11,10 +10,11 @@
 #include <unistd.h>
 #include <stdarg.h>
 #include <sys/stat.h>
+#include <sqlite3.h>
 
 
 
-const ver_t version = {1, 2, 0};
+const ver_t version = {2, 0, 0};
 char logDepth;
 
 
@@ -117,7 +117,7 @@ void log4c(char logtype, char *base, ...)
     time_info = localtime(&current_time);
     strftime(timeString, sizeof(timeString), "%x %H:%M:%S", time_info);
 
-    FILE *fichier = fopen("/var/tmp/Karmine/console.log", "a");
+    FILE *fichier = fopen("/var/tmp/K24/console.log", "a");
     char logtype_str[8];
 
     switch(logtype)
@@ -246,144 +246,6 @@ int getGame(char *title, char ***wordlist)
 }
 
 
-char *get_metadata(char *filename)
-{
-    log4c(0, "fetching metadatas of %s...", filename);
-    AVFormatContext *fmt_ctx = NULL;
-    AVDictionaryEntry *tag = NULL;
-    avformat_open_input(&fmt_ctx, filename, NULL, NULL);
-
-    while ((tag = av_dict_get(fmt_ctx->metadata, "", tag, AV_DICT_IGNORE_SUFFIX))) {
-        if (!strcmp(tag->key, "comment")) {
-            char *toReturn = malloc(strlen(tag->value) + 1);
-            strcpy(toReturn, tag->value);
-            avformat_close_input(&fmt_ctx);   
-            return toReturn;
-        }
-    }
-    log4c(2, "couldn't get metadatas of %s...", filename);
-    return 0;
-}
-
-
-void write_metadata(char * restrict filename, char * restrict toWrite)  // thx to ChatGPT for like 90% of this function
-{
-    char *output = "/tmp/Karmine/30784230304235.mp4";
-    AVFormatContext *fmt_ctx = NULL;
-    AVFormatContext *out_ctx = NULL;
-
-    if (avformat_open_input(&fmt_ctx, filename, NULL, NULL) < 0) {
-        log4c(3, "Erreur : Impossible d'ouvrir le fichier dans lequel écrire les métadonnées");
-        exit(1);
-    }
-
-    log4c(0, "write_metadata: writing metadata on file...");
-    avformat_alloc_output_context2(&out_ctx, NULL, NULL, output);
-    for (unsigned int i = 0; i < fmt_ctx->nb_streams; i++) {
-        AVStream *in_stream = fmt_ctx->streams[i];
-        AVStream *out_stream = avformat_new_stream(out_ctx, NULL);
-        if (!out_stream) {
-            log4c(3, "Erreur : Impossible de copier le flux");
-            avformat_close_input(&fmt_ctx);
-            avformat_free_context(out_ctx);
-            exit(1);
-        }
-        avcodec_parameters_copy(out_stream->codecpar, in_stream->codecpar);
-        out_stream->time_base = in_stream->time_base;
-    }
-    av_dict_set(&out_ctx->metadata, "comment", toWrite, 0);
-
-
-    if (!(out_ctx->oformat->flags & AVFMT_NOFILE)) {
-        if (avio_open(&out_ctx->pb, output, AVIO_FLAG_WRITE) < 0) {
-            log4c(3, "write_metadata : Impossible d'ouvrir le fichier de sortie");
-            avformat_close_input(&fmt_ctx);
-            avformat_free_context(out_ctx);
-            exit(1);
-        }
-    }
-
-
-    if (avformat_write_header(out_ctx, NULL) < 0) {
-        log4c(3, "write_metadata : Impossible d'écrire l'en-tête");
-        avformat_close_input(&fmt_ctx);
-        avformat_free_context(out_ctx);
-        exit(1);
-    }
-
-
-    AVPacket pkt;
-    while (av_read_frame(fmt_ctx, &pkt) >= 0) {
-        AVStream *in_stream = fmt_ctx->streams[pkt.stream_index];
-        AVStream *out_stream = out_ctx->streams[pkt.stream_index];
-
-        pkt.pts = av_rescale_q_rnd(pkt.pts, in_stream->time_base, out_stream->time_base, AV_ROUND_NEAR_INF | AV_ROUND_PASS_MINMAX);
-        pkt.dts = av_rescale_q_rnd(pkt.dts, in_stream->time_base, out_stream->time_base, AV_ROUND_NEAR_INF | AV_ROUND_PASS_MINMAX);
-        pkt.duration = av_rescale_q(pkt.duration, in_stream->time_base, out_stream->time_base);
-        pkt.pos = -1;
-
-        if (av_interleaved_write_frame(out_ctx, &pkt) < 0) {
-            log4c(3, "write_metadata : Impossible d'écrire un paquet");
-            break;
-        }
-        av_packet_unref(&pkt);
-    }
-
-    av_write_trailer(out_ctx);
-
-    avformat_close_input(&fmt_ctx);
-    if (!(out_ctx->oformat->flags & AVFMT_NOFILE)) {
-        avio_closep(&out_ctx->pb);
-    }
-
-    avformat_close_input(&fmt_ctx);
-
-    remove(filename);
-    log4c(0, "write_metadata: successfully added metadata to file...");
-}
-
-
-char **getAllFiles(char *local_path)
-{
-    struct dirent *de;
-    DIR *dr = opendir(local_path);
-    
-    char **lines = NULL;
-    int count = 0;
-
-    while ((de = readdir(dr)) != NULL) {
-        if (strlen(de->d_name) <= 3)     continue;
-        char *line = malloc(strlen(de->d_name) + 1);
-        if (!line) {
-            log4c(3, "getAllFiles : allocation mémoire échouée");
-            exit(EXIT_FAILURE);
-        }
-        strcpy(line, de->d_name);
-
-        char **temp = realloc(lines, sizeof(char *) * (count + 1));
-        if (!temp) {
-            log4c(3, "getAllFiles : allocation mémoire échouée");
-            exit(EXIT_FAILURE);
-        }
-        lines = temp;
-
-        lines[count++] = line;
-    }
-    
-    char **temp = realloc(lines, sizeof(char *) * (count + 1));
-    if (!temp) {
-        log4c(3, "getAllFiles : allocation mémoire échouée");
-        exit(EXIT_FAILURE);
-    }
-    lines = temp;
-    lines[count++] = NULL;
-
-
-    closedir(dr);
-    return lines;
-}
-
-
 char **file_lines(char *filename) {
     FILE *fichier = fopen(filename, "r");
     char **lines = NULL;
@@ -473,13 +335,13 @@ void *cmdRunInThread(void *str)
 }
 
 
-int get_video_duration(char * restrict video, char * restrict local_path)             // returns timestamp of video duration
+int get_video_duration(char *video)             // returns timestamp of video duration
 {
     char cmd[256];
-    snprintf(cmd, sizeof(cmd), "ffprobe -hide_banner -show_entries format=duration \"./%s%s\" > /tmp/Karmine/drtn.tmp", local_path, video);
+    snprintf(cmd, sizeof(cmd), "ffprobe -hide_banner -show_entries format=duration \"%s\" > /tmp/K24/drtn.tmp", video);
     system(cmd);
 
-    FILE *fichier = fopen("/tmp/Karmine/drtn.tmp", "r");
+    FILE *fichier = fopen("/tmp/K24/drtn.tmp", "r");
     fgets(cmd, sizeof(cmd), fichier);
     fgets(cmd, sizeof(cmd), fichier);
     char duration[6];
@@ -493,75 +355,54 @@ int get_video_duration(char * restrict video, char * restrict local_path)       
     duration[6] = '\0';
 
     fclose(fichier);
-    remove("/tmp/Karmine/drtn.tmp");
+    remove("/tmp/K24/drtn.tmp");
 
     return atoi(duration);
 }
 
 
-int get_undownloaded_videos(char * restrict local_path, char * restrict google_api_key)
+int get_undownloaded_videos(char *google_api_key)
 {
     char tmp[256];
-    char video[128];
-    snprintf(tmp, sizeof(tmp), "find %s -printf '%%T+ %%p\n' | sort -r | head > /tmp/Karmine/ltsvd.tmp", local_path);
-    system(tmp);
-    strcpy(tmp, "\0");
-    FILE *lst = fopen("/tmp/Karmine/ltsvd.tmp", "r");
-    do
+    char *link = NULL;
     {
-        fgets(tmp, sizeof(tmp), lst);
-    }   
-    while (strlen(tmp) < 31 + strlen(local_path) + 2);
-
-    if (tmp[strlen(tmp) - 1] == '\n')
-        tmp[strlen(tmp) - 1] = '\0';
-    
-    fclose(lst);
-
-    remove("/tmp/Karmine/ltsvd.tmp");
-    for (int i = 31; tmp[i] != '\n' && tmp[i] != '\0' && tmp[i] != EOF; i++)
-    {
-        video[i - 31] = tmp[i];
-        if (tmp[i + 1] == '\0')
-        {
-            video[i-30] = '\0';
-            break;
-        }
+        sqlite3 *db = init_db("/home/vivenza/.K24/videos.db");
+        sqlite3_exec(db, "SELECT yt_id FROM videos ORDER BY (date) DESC LIMIT(1)", sql_callback_monores, &link, NULL);
+        sqlite3_close(db);
     }
-    char *fullLink = get_metadata(video);       // form : https://www.youtube.com/watch?v=xxxxxxxxxxx
-    char link[12];
-    //link = (link + strlen(link) - 11);      // form : xxxxxxxxxxx
-    strcpy(link, fullLink + strlen(fullLink) - 11);
-    free(fullLink);
 
     int i = 1;
     log4c(0, "get_undownloaded_videos: fetching most recent videos...");
-    while (i < 9999)
+    while (i < 1024)
     {
         if (YTAPI_Get_Recent_Videos(i, google_api_key) != 0)
         {
             log4c(2, "Couldn't get url list, aborting download...");
             return 0;
         }
-        FILE *tmpVids = fopen("/tmp/Karmine/recentVids", "r");
+        FILE *tmpVids = fopen("/tmp/K24/recentVids", "r");
         for (int j = 0; j<i; j++)   
             fgets(tmp, sizeof(tmp), tmpVids);
         fclose(tmpVids);
-        remove("/tmp/Karmine/recentVids");
+        remove("/tmp/K24/recentVids");
 
 
         tmp[11] = '\0';
         if(!strcmp(tmp, link))
         {
             if (i == 1)
+            {
+                free(link);
                 return 0;
-                
+            }
             YTAPI_Get_Recent_Videos(i - 1, google_api_key);
+            free(link);
             return i-1;
         }
 
         i++;
     } 
+    free(link);
     return 0;
 }
 
@@ -594,47 +435,6 @@ void recur_tabcpy(char **dest, char **src, int size) {
 }
 
 
-void init_array_cheat(char *array, unsigned int size)
-{
-    if (size < 5)
-    {
-        perror("array size must be > 5");
-        exit(1);
-    }
-    array[size - 5] = 98;
-    array[size - 4] = 111;
-    array[size - 3] = 111;
-    array[size - 2] = 98;
-    array[size - 1] = 115;
-}
-
-
-int get_cheat_array_size(char *array)       // can be optimized (search method)
-{
-    char searchedValues[] = {98, 111, 111, 98, 115, 0};
-    int i = 0;
-    int j = 0;
-    unsigned int security = UINT32_MAX;
-
-    
-    while (security)
-    {
-        if (array[i] == searchedValues[j])
-        {
-            j++;
-            if (!searchedValues[j])
-                return i+1;
-                
-        }
-
-        security--;
-        i++;
-    }
-
-    return 0;
-}
-
-
 void get_env_filepath(char *buffer, unsigned int size) {
     char path[512];
     const char *home = getenv("HOME");
@@ -643,9 +443,9 @@ void get_env_filepath(char *buffer, unsigned int size) {
         exit(1);
     }
 
-    snprintf(path, sizeof(path), "%s%s", home, "/.config/Karmine");
+    snprintf(path, sizeof(path), "%s%s", home, "/.config/K24");
     mkdir(path, 0700);
-    snprintf(buffer, size, "%s%s/%s", home, "/.config/Karmine", ".env");
+    snprintf(buffer, size, "%s%s/%s", home, "/.config/K24", ".env");
 }
 
 
@@ -653,14 +453,14 @@ int get_env_infos(char * restrict filepath, char * restrict stream_key, char * r
     FILE *file = fopen(filepath, "r");
     if (!file) return 0;
 
-    char line[256];
+    char line[512];
     char *vars[] = {stream_key, bot_id, bot_secret, refresh_token, gapi_key, lpath, channel};
 
     log4c(0, "Fetching API keys from config file...");
     for (int i = 0; i < 7; i++)
     {
         if(!fgets(line, sizeof(line), file)) return 0;
-        strncpy(vars[i], line + 9, 256); //get_cheat_array_size(vars[i]) + 1);
+        strncpy(vars[i], line + 9, 64); //get_cheat_array_size(vars[i]) + 1);
         vars[i][strlen(vars[i]) - 1] = '\0';
     }
 
@@ -713,33 +513,46 @@ int askSave_env_infos(char *filepath) {
     fprintf(file, "GAPI_KEY=%s\n", gapi_key);
     fprintf(file, "LOCAL__P=%s\n", lpath);
     fprintf(file, "TTV_NAME=%s\n", channel);
+    
     fclose(file);
-
     log4c(0, "Clés API enregistrées dans %s\n", filepath);
     return 1;
 }
 
 
-void replace_slashes(char * s)
+char fileExists(char *path)
 {
-    char *tmp = s;
-    while (tmp)
-    {
-        tmp = strchr(tmp, '/');
-        if (tmp)
-            tmp[0] = '~';
-    }
+    return !access(path, F_OK);     // if exists, access returns 0 so we return 1, else we return 0
 }
 
 
-void recover_slashes(char * s)
+char recurFreeN(void *array, int n)     // where n is the array's depth
 {
-    char *tmp = s;
-    while (tmp)
+    if (n>64)
     {
-        tmp = strchr(tmp, '~');
-        if (tmp)
-            tmp[0] = '/';
+        perror("max array depth exceeded (64)");
+        return 1;
     }
+    if (n == 1)
+    {
+        free(array);
+    }
+    else if (n == 2)
+        recur_free(array);
+    
+    else
+    {
+        void **subArray = (void **)array;
+        int i = 0;
+        while(subArray[i])
+        {
+            recurFreeN(subArray[i], n-1);
+            i++;
+        }
+        free(array);
+    }
+
+    return 0;
 }
+
 
